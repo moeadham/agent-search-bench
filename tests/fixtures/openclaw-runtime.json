@@ -1,0 +1,21 @@
+{
+  "plugins": {
+    "load": {
+      "paths": [
+        "/opt/openclaw-plugins/brave-package/node_modules/@openclaw/brave-plugin"
+      ]
+    },
+    "allow": ["brave"],
+    "entries": {
+      "brave": { "enabled": true }
+    }
+  },
+  "tools": {
+    "web": {
+      "search": {
+        "enabled": true,
+        "provider": "brave"
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+runs/
+.env
+agent-search-bench.config.json
+agent-rank.config.json
+*.log
+.DS_Store
+.agent-runtime/

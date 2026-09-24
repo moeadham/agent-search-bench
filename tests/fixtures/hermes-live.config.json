@@ -1,0 +1,28 @@
+{
+  "outputDir": "/runs",
+  "repetitions": 1,
+  "concurrency": 1,
+  "timeoutMs": 600000,
+  "agents": {
+    "claude": { "enabled": false, "command": "claude", "model": "disabled", "credentialEnv": ["ANTHROPIC_API_KEY"] },
+    "codex": { "enabled": false, "command": "codex", "model": "disabled", "credentialEnv": ["CODEX_API_KEY"] },
+    "hermes": {
+      "enabled": true,
+      "command": "hermes",
+      "model": "openai/gpt-5.6-luna",
+      "provider": "openrouter",
+      "credentialEnv": ["OPENROUTER_API_KEY", "FIRECRAWL_API_KEY"],
+      "searchProvider": "firecrawl",
+      "searchBackend": "Hermes Firecrawl"
+    },
+    "openclaw": { "enabled": false, "command": "openclaw", "model": "disabled", "credentialEnv": ["OPENROUTER_API_KEY"] },
+    "cursor": { "enabled": false, "command": "cursor-agent", "model": "disabled", "credentialEnv": ["CURSOR_API_KEY"] }
+  },
+  "judge": {
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "model": "anthropic/claude-sonnet-4.6",
+    "apiKeyEnv": "JUDGE_API_KEY",
+    "timeoutMs": 120000
+  },
+  "aliases": {}
+}

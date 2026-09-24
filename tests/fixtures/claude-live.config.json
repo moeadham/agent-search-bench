@@ -1,0 +1,26 @@
+{
+  "outputDir": "/runs",
+  "repetitions": 3,
+  "concurrency": 1,
+  "timeoutMs": 600000,
+  "agents": {
+    "claude": {
+      "enabled": true,
+      "command": "claude",
+      "model": "claude-sonnet-4-6",
+      "credentialEnv": ["ANTHROPIC_API_KEY"],
+      "searchBackend": "Claude Code WebSearch/WebFetch"
+    },
+    "codex": { "enabled": false, "command": "codex", "model": "disabled", "credentialEnv": ["CODEX_API_KEY"] },
+    "hermes": { "enabled": false, "command": "hermes", "model": "disabled", "credentialEnv": ["OPENROUTER_API_KEY"] },
+    "openclaw": { "enabled": false, "command": "openclaw", "model": "disabled", "credentialEnv": ["OPENROUTER_API_KEY"] },
+    "cursor": { "enabled": false, "command": "cursor-agent", "model": "disabled", "credentialEnv": ["CURSOR_API_KEY"] }
+  },
+  "judge": {
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "model": "anthropic/claude-sonnet-4.6",
+    "apiKeyEnv": "JUDGE_API_KEY",
+    "timeoutMs": 120000
+  },
+  "aliases": {}
+}

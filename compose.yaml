@@ -1,0 +1,32 @@
+services:
+  asbench:
+    build:
+      context: .
+      args:
+        CLAUDE_VERSION: ${CLAUDE_VERSION:-latest}
+        CODEX_VERSION: ${CODEX_VERSION:-latest}
+        OPENCLAW_VERSION: ${OPENCLAW_VERSION:-latest}
+        OPENCLAW_BRAVE_PLUGIN_VERSION: ${OPENCLAW_BRAVE_PLUGIN_VERSION:-latest}
+        HERMES_INSTALL_URL: ${HERMES_INSTALL_URL:-https://hermes-agent.nousresearch.com/install.sh}
+        BUILD_ID: ${ASBENCH_IMAGE_ID:-local}
+    read_only: true
+    init: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=2g
+      - /home/node:rw,nosuid,size=1g
+    volumes:
+      - ./agent-search-bench.config.json:/config/agent-search-bench.config.json:ro
+      - ./runs:/runs
+    working_dir: /
+    environment:
+      ASBENCH_IMAGE_ID: ${ASBENCH_IMAGE_ID:-local}
+      ASBENCH_CONFIG: /config/agent-search-bench.config.json
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CODEX_API_KEY: ${CODEX_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      HERMES_PROVIDER_API_KEY: ${HERMES_PROVIDER_API_KEY:-}
+      OPENCLAW_PROVIDER_API_KEY: ${OPENCLAW_PROVIDER_API_KEY:-}
+      JUDGE_API_KEY: ${JUDGE_API_KEY:-}

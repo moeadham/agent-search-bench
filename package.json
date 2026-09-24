@@ -1,0 +1,40 @@
+{
+  "name": "agent-search-bench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Benchmark what AI agents search, see, and recommend",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moeadham/agent-search-bench.git"
+  },
+  "homepage": "https://github.com/moeadham/agent-search-bench#readme",
+  "type": "module",
+  "bin": {
+    "asbench": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:container": "sh scripts/container-smoke.sh",
+    "test:live": "sh scripts/live-acceptance.sh",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/cli.js"
+  },
+  "engines": {
+    "node": ">=26"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "dependencies": {
+    "commander": "^14.0.1",
+    "p-limit": "^7.2.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.14"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "outputDir": "runs",
+  "repetitions": 3,
+  "concurrency": 5,
+  "timeoutMs": 600000,
+  "agents": {
+    "claude": {
+      "enabled": true,
+      "command": "claude",
+      "model": "CHOOSE_CLAUDE_MODEL",
+      "credentialEnv": ["ANTHROPIC_API_KEY"]
+    },
+    "codex": {
+      "enabled": true,
+      "command": "codex",
+      "model": "CHOOSE_CODEX_MODEL",
+      "credentialEnv": ["CODEX_API_KEY"]
+    },
+    "hermes": {
+      "enabled": true,
+      "command": "hermes",
+      "model": "CHOOSE_HERMES_MODEL",
+      "provider": "CHOOSE_HERMES_PROVIDER",
+      "credentialEnv": ["HERMES_PROVIDER_API_KEY", "FIRECRAWL_API_KEY"],
+      "searchProvider": "firecrawl",
+      "searchBackend": "Hermes Firecrawl"
+    },
+    "openclaw": {
+      "enabled": true,
+      "command": "openclaw",
+      "model": "CHOOSE_OPENCLAW_MODEL",
+      "credentialEnv": ["OPENCLAW_PROVIDER_API_KEY", "BRAVE_API_KEY"],
+      "searchProvider": "brave",
+      "searchBackend": "OpenClaw Brave Search"
+    },
+    "cursor": {
+      "enabled": false,
+      "command": "cursor-agent",
+      "model": "CHOOSE_CURSOR_MODEL",
+      "credentialEnv": ["CURSOR_API_KEY"]
+    }
+  },
+  "judge": {
+    "baseUrl": "https://your-independent-judge.example/v1",
+    "model": "CHOOSE_JUDGE_MODEL",
+    "apiKeyEnv": "JUDGE_API_KEY",
+    "timeoutMs": 120000
+  },
+  "aliases": {
+    "replicate.com": "replicate",
+    "replicate": "replicate"
+  }
+}

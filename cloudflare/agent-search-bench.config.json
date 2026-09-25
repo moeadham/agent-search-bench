@@ -1,0 +1,53 @@
+{
+  "outputDir": "/runs",
+  "repetitions": 3,
+  "concurrency": 15,
+  "timeoutMs": 600000,
+  "agents": {
+    "claude": {
+      "enabled": true,
+      "command": "claude",
+      "model": "claude-sonnet-4-6",
+      "credentialEnv": ["ANTHROPIC_API_KEY"],
+      "searchBackend": "Claude Code WebSearch/WebFetch",
+      "discoveryPromptSuffix": "Research the live web before recommending one."
+    },
+    "codex": {
+      "enabled": true,
+      "command": "codex",
+      "model": "gpt-5.6-terra",
+      "credentialEnv": ["CODEX_API_KEY"],
+      "searchBackend": "Codex native web search"
+    },
+    "hermes": {
+      "enabled": true,
+      "command": "hermes",
+      "model": "openai/gpt-5.6-luna",
+      "provider": "openrouter",
+      "credentialEnv": ["OPENROUTER_API_KEY", "FIRECRAWL_API_KEY"],
+      "searchProvider": "firecrawl",
+      "searchBackend": "Hermes Firecrawl"
+    },
+    "openclaw": {
+      "enabled": true,
+      "command": "openclaw",
+      "model": "openrouter/openai/gpt-5.6-luna",
+      "credentialEnv": ["OPENROUTER_API_KEY", "BRAVE_API_KEY"],
+      "searchProvider": "brave",
+      "searchBackend": "OpenClaw Brave Search"
+    },
+    "cursor": {
+      "enabled": false,
+      "command": "cursor-agent",
+      "model": "disabled",
+      "credentialEnv": ["CURSOR_API_KEY"]
+    }
+  },
+  "judge": {
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "model": "anthropic/claude-sonnet-4.6",
+    "apiKeyEnv": "JUDGE_API_KEY",
+    "timeoutMs": 120000
+  },
+  "aliases": {}
+}

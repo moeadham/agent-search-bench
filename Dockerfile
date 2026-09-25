@@ -23,7 +23,10 @@ RUN npm install -g \
       "@openai/codex@${CODEX_VERSION}" \
       "openclaw@${OPENCLAW_VERSION}" \
     && mkdir -p /opt/openclaw-template /opt/openclaw-plugins \
-    && npm install --prefix /opt/openclaw-plugins/brave-package "@openclaw/brave-plugin@${OPENCLAW_BRAVE_PLUGIN_VERSION}"
+    && npm install --prefix /opt/openclaw-plugins/brave-package "@openclaw/brave-plugin@${OPENCLAW_BRAVE_PLUGIN_VERSION}" \
+    && npm cache clean --force
+
+ENV HERMES_RUNTIME_DIR=/opt/agent-install/.hermes/tools
 
 RUN chown -R node:node "$INSTALL_HOME"
 USER node

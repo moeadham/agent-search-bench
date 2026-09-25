@@ -23,6 +23,13 @@ async function privateWrite(path: string, content: string): Promise<void> {
   await writeFile(path, content, { mode: 0o600 });
 }
 
+function hermesRuntimeDirectory(): string | undefined {
+  const explicit = process.env.ASBENCH_HERMES_RUNTIME_DIR?.trim();
+  if (explicit) return resolve(explicit);
+  const runtimeHome = process.env.ASBENCH_HERMES_RUNTIME_HOME?.trim();
+  return runtimeHome ? join(resolve(runtimeHome), "tools") : undefined;
+}
+
 async function prepareAgentState(agent: AgentId, config: BenchmarkConfig["agents"][AgentId], homeDir: string): Promise<void> {
   if (agent === "codex") await mkdir(join(homeDir, ".codex"), { recursive: true, mode: 0o700 });
   if (agent === "claude") await mkdir(join(homeDir, ".claude"), { recursive: true, mode: 0o700 });
@@ -162,7 +169,13 @@ async function runTrial(input: {
   await mkdir(workDir, { recursive: true, mode: 0o700 });
   await prepareAgentState(input.agent, agentConfig, homeDir);
   const resolved = await resolveSecrets(agentConfig.credentialEnv);
-  const env = { ...safeBaseEnv(), HOME: homeDir, ...resolved.env };
+  const hermesRuntimeDir = input.agent === "hermes" ? hermesRuntimeDirectory() : undefined;
+  const env = {
+    ...safeBaseEnv(),
+    HOME: homeDir,
+    ...(hermesRuntimeDir ? { HERMES_RUNTIME_DIR: hermesRuntimeDir } : {}),
+    ...resolved.env,
+  };
   const context: AdapterContext = { config: agentConfig, homeDir, workDir, sessionKey: randomUUID() };
   const emptyDiscovery: TurnEvidence = { finalText: "", usage: null, costUsd: null, tools: [] };
 

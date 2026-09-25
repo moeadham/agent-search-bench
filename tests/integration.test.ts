@@ -14,6 +14,7 @@ afterEach(async () => {
   server = undefined;
   delete process.env.TEST_AGENT_KEY;
   delete process.env.TEST_JUDGE_KEY;
+  delete process.env.ASBENCH_HERMES_RUNTIME_DIR;
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -23,12 +24,17 @@ describe("full fake-CLI run", () => {
     roots.push(root);
     const fake = join(root, "fake-agent.mjs");
     const lifecycle = join(root, "lifecycle.log");
+    const hermesRuntime = join(root, "stable-hermes-runtime");
     await writeFile(fake, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const all = process.argv.slice(2).join(" ") + " " + input;
 if (process.argv.includes("--version")) { console.log("fake-agent 1.0.0"); process.exit(0); }
+if (all.includes("--provider fake") && process.env.HERMES_RUNTIME_DIR !== ${JSON.stringify(hermesRuntime)}) {
+  console.error("Hermes runtime store was not stable across the isolated trial");
+  process.exit(97);
+}
 const audit = all.includes("audit-friendly");
 if (!audit) {
   appendFileSync(${JSON.stringify(lifecycle)}, "discovery-start\\n");
@@ -62,6 +68,7 @@ if (audit) {
     if (!address || typeof address === "string") throw new Error("No test server address");
     process.env.TEST_AGENT_KEY = "agent-secret";
     process.env.TEST_JUDGE_KEY = "judge-secret";
+    process.env.ASBENCH_HERMES_RUNTIME_DIR = hermesRuntime;
 
     const agent = { enabled: true, command: fake, model: "fake-model", credentialEnv: ["TEST_AGENT_KEY"] };
     const config: BenchmarkConfig = {

@@ -225,6 +225,7 @@ export class BenchmarkContainer extends Container<BenchEnv> {
       ASBENCH_CONFIG: "/config/agent-search-bench.config.json",
       ASBENCH_IMAGE_ID: "cloudflare-demo",
       ASBENCH_HERMES_RUNTIME_HOME: "/opt/agent-install/.hermes",
+      ASBENCH_HERMES_RUNTIME_DIR: "/opt/agent-install/.hermes/tools",
       ASBENCH_OPENCLAW_PLUGIN_PATH:
         "/opt/openclaw-plugins/brave-package/node_modules/@openclaw/brave-plugin",
       HOME: "/home/node",

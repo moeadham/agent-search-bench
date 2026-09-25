@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import pLimit from "p-limit";
@@ -29,6 +29,25 @@ async function prepareAgentState(agent: AgentId, config: BenchmarkConfig["agents
   if (agent === "hermes") {
     const stateDir = join(homeDir, ".hermes");
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
+    const runtimeHome = process.env.ASBENCH_HERMES_RUNTIME_HOME;
+    if (runtimeHome) {
+      await mkdir(join(tmpdir(), "hermes-leases"), { recursive: true, mode: 0o700 });
+      const sourceInstalls = join(runtimeHome, "installs");
+      const targetInstalls = join(stateDir, "installs");
+      await cp(sourceInstalls, targetInstalls, {
+        recursive: true,
+        filter: (source) => basename(source) !== "environments",
+      });
+      for (const entry of await readdir(sourceInstalls, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        await symlink(
+          join(sourceInstalls, entry.name, "environments"),
+          join(targetInstalls, entry.name, "environments"),
+          "dir",
+        );
+      }
+      await symlink(join(runtimeHome, "tools"), join(stateDir, "tools"), "dir");
+    }
     if (config.searchProvider) {
       await privateWrite(join(stateDir, "config.yaml"), `${JSON.stringify({
         web: { backend: config.searchProvider },

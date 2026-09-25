@@ -25,16 +25,28 @@ RUN npm install -g \
     && mkdir -p /opt/openclaw-template /opt/openclaw-plugins \
     && npm install --prefix /opt/openclaw-plugins/brave-package "@openclaw/brave-plugin@${OPENCLAW_BRAVE_PLUGIN_VERSION}"
 
+RUN chown -R node:node "$INSTALL_HOME"
+USER node
+
 # Official installers are URL-overridable so a reviewed, versioned installer
 # artifact can be supplied by production builds.
 RUN curl -fsSL "$HERMES_INSTALL_URL" | bash \
-    && test -x /usr/local/bin/hermes
+    && test -x "$INSTALL_HOME/.local/bin/hermes"
 
-# Hermes' Firecrawl provider lazily imports this pinned client. Install it at
-# image build time because the benchmark runtime is intentionally read-only.
-RUN /opt/agent-install/.hermes/bin/uv pip install \
-      --python /usr/local/lib/hermes-agent/venv/bin/python \
-      "firecrawl-py==4.17.0"
+# Hermes' Firecrawl provider lazily imports an optional dependency. Ask
+# Hermes' package manager to install its pinned extra so this follows Hermes'
+# current isolated-runtime layout.
+RUN hermes pm install --extra firecrawl
+
+# Hermes creates ephemeral process leases beside each selected environment.
+# Keep dependencies immutable at runtime while directing leases to tmpfs.
+RUN mkdir -p /tmp/hermes-leases \
+    && for environment in "$INSTALL_HOME"/.hermes/installs/*/environments/*; do \
+         rm -rf "$environment/.leases"; \
+         ln -s /tmp/hermes-leases "$environment/.leases"; \
+       done
+
+USER root
 
 FROM agent-runtime AS build
 WORKDIR /app
@@ -47,6 +59,7 @@ FROM agent-runtime AS final
 ARG BUILD_ID=local
 ENV ASBENCH_IMAGE_ID=$BUILD_ID \
     ASBENCH_OPENCLAW_PLUGIN_PATH=/opt/openclaw-plugins/brave-package/node_modules/@openclaw/brave-plugin \
+    ASBENCH_HERMES_RUNTIME_HOME=/opt/agent-install/.hermes \
     HOME=/home/node \
     NODE_ENV=production
 RUN mkdir -p /app /runs /config \

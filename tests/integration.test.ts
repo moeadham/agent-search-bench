@@ -22,17 +22,25 @@ describe("full fake-CLI run", () => {
     const root = await mkdtemp(join(tmpdir(), "asbench-integration-"));
     roots.push(root);
     const fake = join(root, "fake-agent.mjs");
+    const lifecycle = join(root, "lifecycle.log");
     await writeFile(fake, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const all = process.argv.slice(2).join(" ") + " " + input;
 if (process.argv.includes("--version")) { console.log("fake-agent 1.0.0"); process.exit(0); }
+const audit = all.includes("audit-friendly");
+if (!audit) {
+  appendFileSync(${JSON.stringify(lifecycle)}, "discovery-start\\n");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+}
 console.log(JSON.stringify({type:"system",session_id:"11111111-1111-4111-8111-111111111111",model:"fake-model",provider:"fake"}));
-if (all.includes("audit-friendly")) {
+if (audit) {
   console.log(JSON.stringify({type:"assistant",text:"I searched for audio aggregators and selected AudioHub from the candidates already observed."}));
 } else {
   console.log(JSON.stringify({type:"tool_result",tool_name:"web_search",query:"audio aggregators",results:[{title:"AudioHub",url:"https://audiohub.example",position:1},{title:"Other",url:"https://other.example",position:2}]}));
   console.log(JSON.stringify({type:"assistant",text:"I recommend [AudioHub](https://audiohub.example)."}));
+  appendFileSync(${JSON.stringify(lifecycle)}, "discovery-end\\n");
 }
 `);
     await chmod(fake, 0o755);
@@ -58,8 +66,8 @@ if (all.includes("audit-friendly")) {
     const agent = { enabled: true, command: fake, model: "fake-model", credentialEnv: ["TEST_AGENT_KEY"] };
     const config: BenchmarkConfig = {
       outputDir: join(root, "runs"),
-      repetitions: 1,
-      concurrency: 5,
+      repetitions: 2,
+      concurrency: 10,
       timeoutMs: 5_000,
       agents: {
         claude: { ...agent, discoveryPromptSuffix: "Research the live web before recommending one." },
@@ -73,8 +81,10 @@ if (all.includes("audit-friendly")) {
     };
     const run = await runBenchmark({ config, configRaw: JSON.stringify(config), query: "Find an audio model aggregator" });
     const report = JSON.parse(await readFile(join(run, "report.json"), "utf8")) as BenchmarkReport;
-    expect(report.scheduledTrials).toBe(5);
-    expect(report.successfulTrials).toBe(5);
+    expect(report.scheduledTrials).toBe(10);
+    expect(report.successfulTrials).toBe(10);
+    const lifecycleLines = (await readFile(lifecycle, "utf8")).trim().split("\n");
+    expect(lifecycleLines.slice(0, 10)).toEqual(Array(10).fill("discovery-start"));
     expect(report.entities[0]?.key).toBe("audiohub.example");
     expect(report.entities[0]?.mrr).toBe(1);
     expect(report.trials.some((trial) => trial.judge.attempts === 2)).toBe(true);

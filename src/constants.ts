@@ -5,7 +5,7 @@ export const INTERVIEW_PROMPT = `Without doing any new searches or opening any n
 
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 export const DEFAULT_REPETITIONS = 3;
-export const DEFAULT_CONCURRENCY = 5;
+export const DEFAULT_CONCURRENCY = 15;
 export const JUDGE_INPUT_LIMIT = 100_000;
 
 export const AGENT_IDS = [

@@ -388,17 +388,15 @@ export async function runBenchmark(input: { config: BenchmarkConfig; configRaw: 
 
   const enabled = AGENT_IDS.filter((id) => input.config.agents[id].enabled);
   const limit = pLimit(input.config.concurrency);
-  const trials: TrialResult[] = [];
-  for (let repetition = 1; repetition <= input.config.repetitions; repetition++) {
-    const repetitionTrials = await Promise.all(enabled.map((agent) => limit(() => runTrial({
+  const scheduled = Array.from({ length: input.config.repetitions }, (_, index) => index + 1)
+    .flatMap((repetition) => enabled.map((agent) => ({ agent, repetition })));
+  const trials = await Promise.all(scheduled.map(({ agent, repetition }) => limit(() => runTrial({
       agent,
       repetition,
       query: input.query,
       config: input.config,
       runDirectory,
     }))));
-    trials.push(...repetitionTrials);
-  }
   for (const id of enabled) {
     const agent = manifest.agents[id];
     if (!agent) continue;

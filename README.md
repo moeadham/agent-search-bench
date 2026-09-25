@@ -66,7 +66,7 @@ For arbitrary shell-sensitive prompts:
 node dist/cli.js run --query-file prompt.txt
 ```
 
-The default is three fresh repetitions per enabled agent with five-way concurrency and a ten-minute timeout per turn. Each successful discovery is followed by a fixed audit interview in the same session. Regenerate a report without making model calls:
+The default is three fresh repetitions per enabled agent with fifteen-way concurrency and a ten-minute timeout per turn. Every agent/repetition pair is submitted to one concurrency pool with no repetition barriers, so the default five-agent, three-repetition run starts all fifteen independent trials together. Each successful discovery is followed by a fixed audit interview in the same session. Regenerate a report without making model calls:
 
 ```bash
 node dist/cli.js report runs/<run-id>

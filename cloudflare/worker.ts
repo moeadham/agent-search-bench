@@ -461,8 +461,11 @@ async function timingSafeEqual(left: string, right: string): Promise<boolean> {
 async function isAuthorized(request: Request, env: BenchEnv): Promise<boolean> {
   const authorization = request.headers.get("authorization") ?? "";
   const prefix = "Bearer ";
-  if (!authorization.startsWith(prefix)) return false;
-  return timingSafeEqual(authorization.slice(prefix.length), env.DEMO_TOKEN);
+  if (authorization.startsWith(prefix)) {
+    return timingSafeEqual(authorization.slice(prefix.length), env.DEMO_TOKEN);
+  }
+  const key = new URL(request.url).searchParams.get("key");
+  return key !== null && timingSafeEqual(key, env.DEMO_TOKEN);
 }
 
 function objectResponse(object: R2ObjectBody): Response {
@@ -470,7 +473,53 @@ function objectResponse(object: R2ObjectBody): Response {
   object.writeHttpMetadata(headers);
   headers.set("etag", object.httpEtag);
   headers.set("cache-control", "private, no-store");
+  headers.set("referrer-policy", "no-referrer");
+  headers.set("x-content-type-options", "nosniff");
   return new Response(object.body, { headers });
+}
+
+function html(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: {
+      "cache-control": "private, no-store",
+      "content-type": "text/html; charset=utf-8",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
+function statusPage(runName: string, state: string, error?: string): Response {
+  const terminal = state === "failed";
+  const title = terminal ? "Benchmark failed" : "Benchmark in progress";
+  const refresh = terminal ? "" : '<meta http-equiv="refresh" content="5">';
+  const detail = terminal
+    ? `<p class="error">${escapeHtml(error ?? "The benchmark failed.")}</p>`
+    : `<div class="spinner" aria-label="Loading"></div><p>This page refreshes automatically every five seconds.</p>`;
+  return html(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer">${refresh}<title>${title}</title><style>
+    :root{color-scheme:light}*{box-sizing:border-box}body{margin:0;background:#eef2ee;color:#17211b;font:16px/1.55 system-ui,sans-serif;min-height:100vh;display:grid;place-items:center;padding:24px}main{width:min(560px,100%);background:white;border:1px solid #dce4de;border-radius:16px;padding:30px;box-shadow:0 8px 30px rgba(28,54,37,.08)}h1{margin:0 0 12px;font-size:28px}.meta{color:#5f6f64;overflow-wrap:anywhere}.spinner{width:34px;height:34px;margin:24px 0;border:4px solid #dce4de;border-top-color:#176b45;border-radius:50%;animation:spin .8s linear infinite}.error{color:#912018;background:#fce8e6;padding:12px;border-radius:8px}@keyframes spin{to{transform:rotate(360deg)}}
+  </style></head><body><main><h1>${title}</h1><p class="meta">Run ${escapeHtml(runName)} · ${escapeHtml(state)}</p>${detail}</main></body></html>`, terminal ? 500 : 202);
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function validQuery(query: string | null): query is string {
+  return query !== null && query.trim().length > 0 && query.length <= maximumQueryLength;
+}
+
+async function queueRun(
+  query: string,
+  requestReceivedAt: string,
+  env: BenchEnv,
+): Promise<string> {
+  const runName = `run-${crypto.randomUUID()}`;
+  const container = env.BENCHMARK_CONTAINER.getByName("benchmark-runner");
+  await container.queueBenchmark(query, runName, requestReceivedAt);
+  return runName;
 }
 
 function containerSecrets(env: BenchEnv): Record<string, string> {
@@ -498,6 +547,32 @@ export default {
       return json({ error: "Unauthorized" }, 401);
     }
 
+    if (request.method === "GET" && url.pathname === "/runs") {
+      const query = url.searchParams.get("query");
+      const key = url.searchParams.get("key");
+      if (!validQuery(query)) {
+        return json({ error: "query must be a non-empty string up to 10,000 characters" }, 400);
+      }
+      const requestReceivedAt = new Date().toISOString();
+      let runName: string | undefined;
+      try {
+        runName = await queueRun(query, requestReceivedAt, env);
+        const resultUrl = new URL(`/runs/${runName}`, url.origin);
+        if (key !== null) resultUrl.searchParams.set("key", key);
+        return json({
+          state: "queued",
+          runId: runName,
+          resultUrl: resultUrl.toString(),
+        }, 202);
+      } catch (error) {
+        console.error("benchmark_failed", { runName, error });
+        return json({
+          error: error instanceof Error ? error.message : "Benchmark failed",
+          runId: runName,
+        }, 500);
+      }
+    }
+
     if (request.method === "POST" && url.pathname === "/runs") {
       const requestReceivedAt = new Date().toISOString();
       const contentLength = Number(request.headers.get("content-length") ?? "0");
@@ -513,18 +588,13 @@ export default {
         typeof body === "object" && body !== null && "query" in body
           ? (body as { query?: unknown }).query
           : undefined;
-      if (
-        typeof query !== "string" ||
-        query.trim().length === 0 ||
-        query.length > maximumQueryLength
-      ) {
+      if (typeof query !== "string" || !validQuery(query)) {
         return json({ error: "query must be a non-empty string up to 10,000 characters" }, 400);
       }
 
-      const runName = `run-${crypto.randomUUID()}`;
-      const container = env.BENCHMARK_CONTAINER.getByName("benchmark-runner");
+      let runName: string | undefined;
       try {
-        await container.queueBenchmark(query, runName, requestReceivedAt);
+        runName = await queueRun(query, requestReceivedAt, env);
         return json({
           state: "queued",
           runName,
@@ -545,6 +615,25 @@ export default {
           500,
         );
       }
+    }
+
+    const resultMatch = url.pathname.match(/^\/runs\/(run-[a-f0-9-]+)$/);
+    if (request.method === "GET" && resultMatch) {
+      const runName = resultMatch[1]!;
+      const statusObject = await env.ARTIFACTS.get(`${runName}/status.json`);
+      if (!statusObject) return html("<h1>Run not found</h1>", 404);
+      let status: { state?: unknown; error?: unknown };
+      try {
+        status = await statusObject.json<{ state?: unknown; error?: unknown }>();
+      } catch {
+        return statusPage(runName, "reading status");
+      }
+      const state = typeof status.state === "string" ? status.state : "unknown";
+      if (state === "complete") {
+        const report = await env.ARTIFACTS.get(`${runName}/report.html`);
+        return report ? objectResponse(report) : statusPage(runName, "finalizing report");
+      }
+      return statusPage(runName, state, typeof status.error === "string" ? status.error : undefined);
     }
 
     const match = url.pathname.match(

@@ -142,7 +142,7 @@ The Compose service is non-root, read-only except for `/tmp`, and mounts only co
 
 ## Cloudflare Containers demo
 
-The checked-in Worker runs the same CLI image on a Cloudflare Container and writes reports plus the complete evidence archive to a private R2 bucket. Long benchmarks are queued through the container Durable Object: `POST /runs` returns `202` immediately, while `status.json` reports `queued`, `running`, `complete`, or `failed`.
+The checked-in Worker runs the same CLI image on a Cloudflare Container and writes reports plus the complete evidence archive to a private R2 bucket. Long benchmarks are queued through the container Durable Object. Runs can be started with either `POST /runs` or a browser-friendly `GET /runs?query=...&key=...` request.
 
 Create the bucket and configure Worker secrets before the first deployment:
 
@@ -173,6 +173,19 @@ curl https://<worker>.workers.dev/runs/<run-name>/status.json \
 ```
 
 Completed runs expose authenticated `report.html`, `report.json`, and `artifacts.tar.gz` paths under the same run URL. Final `status.json` also includes a millisecond-resolution lifecycle timeline for scheduling, container entrypoint and readiness, cleanup, benchmark execution, artifact persistence, and container destruction. The pre-persistence portion is copied into the archived `manifest.json`. The container filesystem is ephemeral; R2 is the durable record.
+
+For a GET-only flow, put the same demo token in the `key` query parameter. The first request returns a public run ID and a `resultUrl`. Open that URL immediately: it displays an auto-refreshing progress page until the report is ready, then serves the completed report at the same address.
+
+```bash
+curl --get 'https://<worker>.workers.dev/runs' \
+  --data-urlencode "key=$DEMO_TOKEN" \
+  --data-urlencode 'query=find me an api for realtime audio tts but with every model available'
+
+# Open the resultUrl returned above, or:
+curl "https://<worker>.workers.dev/runs/<run-id>?key=$DEMO_TOKEN"
+```
+
+Keys in URLs can be retained by browser history, proxies, and request logs. Use the bearer-token POST flow when that exposure is undesirable.
 
 ## Testing
 

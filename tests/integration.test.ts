@@ -96,7 +96,7 @@ if (audit) {
       agents: {
         claude: { ...agent, discoveryPromptSuffix: "Research the live web before recommending one." },
         codex: { ...agent },
-        hermes: { ...agent, provider: "fake" },
+        hermes: { ...agent, provider: "fake", timeoutMs: 1_000 },
         openclaw: { ...agent },
         cursor: { ...agent },
       },
@@ -114,6 +114,7 @@ if (audit) {
     expect(report.trials.some((trial) => trial.judge.attempts === 2)).toBe(true);
     expect(report.trials.find((trial) => trial.agent === "claude")?.discoveryPrompt).toBe("Find an audio model aggregator\n\nResearch the live web before recommending one.");
     expect(report.trials.find((trial) => trial.agent === "codex")?.discoveryPrompt).toBe("Find an audio model aggregator");
+    expect(report.harnesses?.hermes?.timeoutMs).toBe(1_000);
     expect(await readFile(join(run, "trials", "codex", "1", "interview.txt"), "utf8")).toContain("selected AudioHub");
     await generateReport(run);
     const html = await readFile(join(run, "report.html"), "utf8");

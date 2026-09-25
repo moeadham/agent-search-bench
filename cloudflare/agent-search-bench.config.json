@@ -24,6 +24,7 @@
       "command": "hermes",
       "model": "openai/gpt-5.6-luna",
       "provider": "openrouter",
+      "timeoutMs": 180000,
       "credentialEnv": ["OPENROUTER_API_KEY", "FIRECRAWL_API_KEY"],
       "searchProvider": "firecrawl",
       "searchBackend": "Hermes Firecrawl"

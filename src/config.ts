@@ -10,6 +10,7 @@ const agentSchema = z.object({
   command: z.string().min(1),
   model: z.string().min(1),
   credentialEnv: z.array(z.string().regex(/^[A-Z][A-Z0-9_]*$/)).min(1),
+  timeoutMs: z.number().int().min(1_000).optional(),
   provider: z.string().min(1).optional(),
   searchProvider: z.string().min(1).optional(),
   searchBackend: z.string().min(1).optional(),
@@ -65,7 +66,7 @@ export function createConfigTemplate(): BenchmarkConfig {
     agents: {
       claude: { enabled: true, command: "claude", model: "CHOOSE_CLAUDE_MODEL", credentialEnv: ["ANTHROPIC_API_KEY"] },
       codex: { enabled: true, command: "codex", model: "CHOOSE_CODEX_MODEL", credentialEnv: ["CODEX_API_KEY"] },
-      hermes: { enabled: true, command: "hermes", model: "CHOOSE_HERMES_MODEL", provider: "CHOOSE_HERMES_PROVIDER", credentialEnv: ["HERMES_PROVIDER_API_KEY", "FIRECRAWL_API_KEY"], searchProvider: "firecrawl", searchBackend: "Hermes Firecrawl" },
+      hermes: { enabled: true, command: "hermes", model: "CHOOSE_HERMES_MODEL", provider: "CHOOSE_HERMES_PROVIDER", credentialEnv: ["HERMES_PROVIDER_API_KEY", "FIRECRAWL_API_KEY"], timeoutMs: 180_000, searchProvider: "firecrawl", searchBackend: "Hermes Firecrawl" },
       openclaw: { enabled: true, command: "openclaw", model: "CHOOSE_OPENCLAW_MODEL", credentialEnv: ["OPENCLAW_PROVIDER_API_KEY", "BRAVE_API_KEY"], searchProvider: "brave", searchBackend: "OpenClaw Brave Search" },
       cursor: { enabled: false, command: "cursor-agent", model: "CHOOSE_CURSOR_MODEL", credentialEnv: ["CURSOR_API_KEY"] },
     },

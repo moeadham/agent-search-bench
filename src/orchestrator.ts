@@ -156,6 +156,7 @@ async function runTrial(input: {
 }): Promise<TrialResult> {
   const started = Date.now();
   const agentConfig = input.config.agents[input.agent];
+  const turnTimeoutMs = agentConfig.timeoutMs ?? input.config.timeoutMs;
   const discoveryPrompt = agentConfig.discoveryPromptSuffix
     ? `${input.query}\n\n${agentConfig.discoveryPromptSuffix}`
     : input.query;
@@ -203,7 +204,7 @@ async function runTrial(input: {
 
     let discoveryProcess: ProcessResult;
     try {
-      discoveryProcess = await runProcess(adapter.discovery(context, discoveryPrompt), { cwd: workDir, timeoutMs: input.config.timeoutMs, env });
+      discoveryProcess = await runProcess(adapter.discovery(context, discoveryPrompt), { cwd: workDir, timeoutMs: turnTimeoutMs, env });
     } catch (error) {
       const trial: TrialResult = {
         schemaVersion: SCHEMA_VERSION,
@@ -233,7 +234,7 @@ async function runTrial(input: {
         homeDir,
         workDir,
         env,
-        timeoutMs: input.config.timeoutMs,
+        timeoutMs: turnTimeoutMs,
       });
     }
     const discovery = parseTurn(discoveryProcess.events, discoveryProcess.stdout, "discovery");
@@ -283,7 +284,7 @@ async function runTrial(input: {
 
     let interviewProcess: ProcessResult;
     try {
-      interviewProcess = await runProcess(adapter.interview(context, sessionId, INTERVIEW_PROMPT), { cwd: workDir, timeoutMs: input.config.timeoutMs, env });
+      interviewProcess = await runProcess(adapter.interview(context, sessionId, INTERVIEW_PROMPT), { cwd: workDir, timeoutMs: turnTimeoutMs, env });
     } catch (error) {
       const local = extractAnswerCandidates(discovery.finalText, input.config.aliases);
       const trial: TrialResult = {
@@ -346,7 +347,7 @@ export async function collectVersions(config: BenchmarkConfig): Promise<RunManif
   await Promise.all(AGENT_IDS.map(async (id) => {
     const agent = config.agents[id];
     if (!agent.enabled) {
-      result[id] = { enabled: false, command: agent.command, modelPin: agent.model };
+      result[id] = { enabled: false, command: agent.command, modelPin: agent.model, timeoutMs: agent.timeoutMs ?? config.timeoutMs };
       return;
     }
     try {
@@ -356,12 +357,13 @@ export async function collectVersions(config: BenchmarkConfig): Promise<RunManif
         enabled: true,
         command: agent.command,
         modelPin: agent.model,
+        timeoutMs: agent.timeoutMs ?? config.timeoutMs,
         ...(agent.provider ? { provider: agent.provider } : {}),
         searchBackend: agent.searchBackend ?? "native/default",
         ...(version.exitCode === 0 ? { version: versionText } : { versionError: processError("Version", version) }),
       };
     } catch (error) {
-      result[id] = { enabled: true, command: agent.command, modelPin: agent.model, versionError: error instanceof Error ? error.message : String(error) };
+      result[id] = { enabled: true, command: agent.command, modelPin: agent.model, timeoutMs: agent.timeoutMs ?? config.timeoutMs, versionError: error instanceof Error ? error.message : String(error) };
     }
   }));
   return result;

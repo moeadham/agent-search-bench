@@ -5,6 +5,7 @@ export interface AgentConfig {
   command: string;
   model: string;
   credentialEnv: string[];
+  timeoutMs?: number;
   provider?: string;
   searchProvider?: string;
   searchBackend?: string;
@@ -162,6 +163,7 @@ export interface RunManifest {
     command: string;
     modelPin: string;
     provider?: string;
+    timeoutMs?: number;
     resolvedModels?: string[];
     resolvedProviders?: string[];
     searchBackend?: string;

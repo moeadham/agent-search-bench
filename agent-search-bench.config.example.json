@@ -21,6 +21,7 @@
       "command": "hermes",
       "model": "CHOOSE_HERMES_MODEL",
       "provider": "CHOOSE_HERMES_PROVIDER",
+      "timeoutMs": 180000,
       "credentialEnv": ["HERMES_PROVIDER_API_KEY", "FIRECRAWL_API_KEY"],
       "searchProvider": "firecrawl",
       "searchBackend": "Hermes Firecrawl"

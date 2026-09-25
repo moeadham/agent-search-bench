@@ -51,14 +51,14 @@ const jsonSchema = {
 };
 
 const insightResponseSchema = z.object({
-  title: z.string().min(1).max(200),
-  targetQueries: z.array(z.string().min(1)).min(1).max(5),
+  title: z.string().min(1),
+  targetQueries: z.array(z.string().min(1)).min(1),
   outline: z.array(z.object({
-    heading: z.string().min(1).max(160),
-    purpose: z.string().min(1).max(500),
-  })).min(2).max(6),
-  evidenceToInclude: z.array(z.string().min(1).max(500)).min(1).max(8),
-  rationale: z.string().min(1).max(1_000),
+    heading: z.string().min(1),
+    purpose: z.string().min(1),
+  })).min(2),
+  evidenceToInclude: z.array(z.string().min(1)).min(1),
+  rationale: z.string().min(1),
 });
 
 const insightJsonSchema = {
@@ -252,8 +252,19 @@ async function analyzeHarness(input: {
       raw = await request(input.config, input.apiKey, attempt === 1
         ? [{ role: "system", content: system }, { role: "user", content: user }]
         : [{ role: "system", content: system }, { role: "user", content: user }, { role: "assistant", content: raw }, { role: "user", content: "Repair the response. Every targetQueries entry must exactly match one of the supplied allowed queries." }], insightJsonSchema);
-      const suggestion = insightResponseSchema.parse(parseJson(raw));
-      if (suggestion.targetQueries.some((query) => !exactQueries.includes(query))) throw new Error("Analysis returned a target query that was not observed");
+      const parsed = insightResponseSchema.parse(parseJson(raw));
+      const targetQueries = [...new Set(parsed.targetQueries.filter((query) => exactQueries.includes(query)))].slice(0, 5);
+      if (!targetQueries.length) throw new Error("Analysis returned no observed target queries");
+      const suggestion = {
+        title: parsed.title.slice(0, 200),
+        targetQueries,
+        outline: parsed.outline.slice(0, 6).map((section) => ({
+          heading: section.heading.slice(0, 160),
+          purpose: section.purpose.slice(0, 500),
+        })),
+        evidenceToInclude: parsed.evidenceToInclude.slice(0, 8).map((item) => item.slice(0, 500)),
+        rationale: parsed.rationale.slice(0, 1_000),
+      };
       return { agent: input.agent, status: "ok", suggestion, attempts: attempt };
     } catch (error) {
       if (attempt === 2) return { agent: input.agent, status: raw ? "invalid" : "error", error: error instanceof Error ? error.message : String(error), attempts: attempt };

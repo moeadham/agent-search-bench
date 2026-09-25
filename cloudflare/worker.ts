@@ -25,11 +25,32 @@ interface RunResult {
   stderr: string;
   report: unknown;
   elapsedMs: number;
+  timeline: RunTimeline;
 }
 
 interface ScheduledRun {
   query: string;
   runName: string;
+  timeline: RunTimeline;
+}
+
+interface RunTimeline {
+  requestReceivedAt: string;
+  queuedAt: string;
+  scheduledCallbackStartedAt?: string;
+  containerStartRequestedAt?: string;
+  containerEntrypointAt?: string;
+  containerEntrypointMarkerError?: string;
+  containerStartResolvedAt?: string;
+  cleanupStartedAt?: string;
+  cleanupCompletedAt?: string;
+  benchmarkStartedAt?: string;
+  benchmarkCompletedAt?: string;
+  artifactPersistenceStartedAt?: string;
+  artifactPersistenceCompletedAt?: string;
+  containerDestroyStartedAt?: string;
+  containerDestroyCompletedAt?: string;
+  completedAt?: string;
 }
 
 const textDecoder = new TextDecoder();
@@ -38,9 +59,57 @@ const artifactRunIdPattern = /^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/;
 const maximumQueryLength = 10_000;
 const commandTimeoutMs = 15 * 60 * 1_000;
 
+function markTimeline(
+  runName: string,
+  timeline: RunTimeline,
+  phase: keyof RunTimeline,
+): string {
+  const at = new Date().toISOString();
+  timeline[phase] = at;
+  console.log("benchmark_timeline", { runName, phase, at });
+  return at;
+}
+
+function durationMs(start?: string, end?: string): number | null {
+  if (!start || !end) return null;
+  return Math.max(0, Date.parse(end) - Date.parse(start));
+}
+
+function timelineDurations(timeline: RunTimeline): Record<string, number | null> {
+  return {
+    requestToScheduledCallbackMs: durationMs(
+      timeline.requestReceivedAt,
+      timeline.scheduledCallbackStartedAt,
+    ),
+    containerStartMs: durationMs(
+      timeline.containerStartRequestedAt,
+      timeline.containerStartResolvedAt,
+    ),
+    startRequestToEntrypointMs: durationMs(
+      timeline.containerStartRequestedAt,
+      timeline.containerEntrypointAt,
+    ),
+    entrypointToStartResolvedMs: durationMs(
+      timeline.containerEntrypointAt,
+      timeline.containerStartResolvedAt,
+    ),
+    cleanupMs: durationMs(timeline.cleanupStartedAt, timeline.cleanupCompletedAt),
+    benchmarkMs: durationMs(timeline.benchmarkStartedAt, timeline.benchmarkCompletedAt),
+    artifactPersistenceMs: durationMs(
+      timeline.artifactPersistenceStartedAt,
+      timeline.artifactPersistenceCompletedAt,
+    ),
+    containerDestroyMs: durationMs(
+      timeline.containerDestroyStartedAt,
+      timeline.containerDestroyCompletedAt,
+    ),
+    endToEndMs: durationMs(timeline.requestReceivedAt, timeline.completedAt),
+  };
+}
+
 export class BenchmarkContainer extends Container<BenchEnv> {
   sleepAfter = "1m";
-  entrypoint = ["tail", "-f", "/dev/null"];
+  entrypoint = ["/app/container-entrypoint.sh"];
   enableInternet = true;
 
   private get runtime(): globalThis.Container {
@@ -80,62 +149,88 @@ export class BenchmarkContainer extends Container<BenchEnv> {
     );
   }
 
-  async queueBenchmark(query: string, runName: string): Promise<void> {
+  async queueBenchmark(
+    query: string,
+    runName: string,
+    requestReceivedAt: string,
+  ): Promise<void> {
     if (!runIdPattern.test(runName)) throw new Error("Invalid run name");
+    const timeline: RunTimeline = {
+      requestReceivedAt,
+      queuedAt: new Date().toISOString(),
+    };
     await this.writeStatus(runName, {
       state: "queued",
       runName,
-      queuedAt: new Date().toISOString(),
+      timeline,
+      durationsMs: timelineDurations(timeline),
     });
     await this.schedule<ScheduledRun>(1, "runScheduledBenchmark", {
       query,
       runName,
+      timeline,
     });
   }
 
   async runScheduledBenchmark(payload: ScheduledRun): Promise<void> {
-    const { query, runName } = payload;
+    const { query, runName, timeline } = payload;
+    markTimeline(runName, timeline, "scheduledCallbackStartedAt");
+    let result: RunResult | undefined;
+    let failure: unknown;
     try {
       await this.writeStatus(runName, {
         state: "running",
         runName,
-        startedAt: new Date().toISOString(),
+        timeline,
+        durationsMs: timelineDurations(timeline),
       });
-      const result = await this.runBenchmark(
+      result = await this.runBenchmark(
         query,
         runName,
         containerSecrets(this.env),
+        timeline,
       );
+    } catch (error) {
+      failure = error;
+      console.error("scheduled_benchmark_failed", { runName, error });
+    }
+
+    markTimeline(runName, timeline, "containerDestroyStartedAt");
+    try {
+      await this.destroy();
+    } catch (stopError) {
+      console.error("container_stop_failed", { runName, stopError });
+      failure ??= stopError;
+    }
+    markTimeline(runName, timeline, "containerDestroyCompletedAt");
+    markTimeline(runName, timeline, "completedAt");
+
+    if (result) {
       await this.writeStatus(runName, {
         state: "complete",
         runName,
         runId: result.runId,
         exitCode: result.exitCode,
         elapsedMs: result.elapsedMs,
-        completedAt: new Date().toISOString(),
+        timeline,
+        durationsMs: timelineDurations(timeline),
         artifacts: {
           reportJson: `/runs/${runName}/report.json`,
           reportMarkdown: `/runs/${runName}/report.md`,
           archive: `/runs/${runName}/artifacts.tar.gz`,
         },
       });
-    } catch (error) {
-      console.error("scheduled_benchmark_failed", { runName, error });
+    } else {
       try {
         await this.writeStatus(runName, {
           state: "failed",
           runName,
-          error: error instanceof Error ? error.message : "Benchmark failed",
-          failedAt: new Date().toISOString(),
+          error: failure instanceof Error ? failure.message : "Benchmark failed",
+          timeline,
+          durationsMs: timelineDurations(timeline),
         });
       } catch (statusError) {
         console.error("failed_status_write_failed", { runName, statusError });
-      }
-    } finally {
-      try {
-        await this.destroy();
-      } catch (stopError) {
-        console.error("container_stop_failed", { runName, stopError });
       }
     }
   }
@@ -168,7 +263,20 @@ export class BenchmarkContainer extends Container<BenchEnv> {
   private async persistArtifacts(
     runName: string,
     runId: string,
+    timeline: RunTimeline,
   ): Promise<unknown> {
+    const manifestPath = `/runs/${runId}/manifest.json`;
+    const attachTimeline = await this.execute([
+      "node",
+      "-e",
+      "const fs=require('node:fs');const path=process.argv[1];const manifest=JSON.parse(fs.readFileSync(path,'utf8'));manifest.platformTimeline=JSON.parse(process.argv[2]);fs.writeFileSync(path,JSON.stringify(manifest,null,2)+'\\n');",
+      manifestPath,
+      JSON.stringify({ timestamps: timeline, durationsMs: timelineDurations(timeline) }),
+    ]);
+    if (attachTimeline.exitCode !== 0) {
+      throw new Error(`Could not attach lifecycle timeline: ${attachTimeline.stderr}`);
+    }
+
     const reportJson = await this.execute(["cat", `/runs/${runId}/report.json`]);
     const reportMarkdown = await this.execute(["cat", `/runs/${runId}/report.md`]);
     if (reportJson.exitCode !== 0 || reportMarkdown.exitCode !== 0) {
@@ -215,6 +323,7 @@ export class BenchmarkContainer extends Container<BenchEnv> {
     query: string,
     runName: string,
     secrets: Record<string, string>,
+    timeline: RunTimeline,
   ): Promise<RunResult> {
     if (!runIdPattern.test(runName)) {
       throw new Error("Invalid run name");
@@ -232,6 +341,7 @@ export class BenchmarkContainer extends Container<BenchEnv> {
       NODE_ENV: "production",
       PATH: "/opt/pnpm:/opt/agent-install/.local/bin:/usr/local/bin:/usr/bin:/bin",
     };
+    markTimeline(runName, timeline, "containerStartRequestedAt");
     await this.start({
       envVars: runtimeEnvironment,
       entrypoint: this.entrypoint,
@@ -241,8 +351,34 @@ export class BenchmarkContainer extends Container<BenchEnv> {
       retries: 1_200,
       waitInterval: 500,
     });
+    markTimeline(runName, timeline, "containerStartResolvedAt");
     this.renewActivityTimeout();
 
+    const entrypointMarker = await this.execute(
+      ["cat", "/tmp/asbench-container-entrypoint-at"],
+      {},
+      5_000,
+    );
+    const entrypointAt = entrypointMarker.stdout.trim();
+    if (entrypointMarker.exitCode === 0 && Number.isFinite(Date.parse(entrypointAt))) {
+      timeline.containerEntrypointAt = entrypointAt;
+      console.log("benchmark_timeline", {
+        runName,
+        phase: "containerEntrypointAt",
+        at: entrypointAt,
+      });
+    } else {
+      timeline.containerEntrypointMarkerError =
+        entrypointMarker.stderr.trim() ||
+        entrypointMarker.stdout.trim() ||
+        `marker read exited ${entrypointMarker.exitCode}`;
+      console.warn("benchmark_entrypoint_marker_unavailable", {
+        runName,
+        error: timeline.containerEntrypointMarkerError,
+      });
+    }
+
+    markTimeline(runName, timeline, "cleanupStartedAt");
     const cleanup = await this.execute([
       "find",
       "/runs",
@@ -260,12 +396,15 @@ export class BenchmarkContainer extends Container<BenchEnv> {
     if (cleanup.exitCode !== 0) {
       throw new Error(`Could not prepare the run directory: ${cleanup.stderr}`);
     }
+    markTimeline(runName, timeline, "cleanupCompletedAt");
 
     const startedAt = Date.now();
+    markTimeline(runName, timeline, "benchmarkStartedAt");
     const result = await this.execute(
       ["node", "/app/dist/cli.js", "run", "--query", query],
       { env: runtimeEnvironment },
     );
+    markTimeline(runName, timeline, "benchmarkCompletedAt");
 
     const runId = await this.locateRunId();
 
@@ -275,7 +414,15 @@ export class BenchmarkContainer extends Container<BenchEnv> {
       );
     }
 
-    const report = await this.persistArtifacts(runName, runId);
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `Benchmark command exited ${result.exitCode}: ${result.stderr.slice(-2_000) || result.stdout.slice(-2_000)}`,
+      );
+    }
+
+    markTimeline(runName, timeline, "artifactPersistenceStartedAt");
+    const report = await this.persistArtifacts(runName, runId, timeline);
+    markTimeline(runName, timeline, "artifactPersistenceCompletedAt");
 
     this.renewActivityTimeout();
     return {
@@ -285,6 +432,7 @@ export class BenchmarkContainer extends Container<BenchEnv> {
       stderr: result.stderr.slice(-4_000),
       report,
       elapsedMs: Date.now() - startedAt,
+      timeline,
     };
   }
 }
@@ -351,6 +499,7 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/runs") {
+      const requestReceivedAt = new Date().toISOString();
       const contentLength = Number(request.headers.get("content-length") ?? "0");
       if (contentLength > 20_000) return json({ error: "Request too large" }, 413);
 
@@ -375,7 +524,7 @@ export default {
       const runName = `run-${crypto.randomUUID()}`;
       const container = env.BENCHMARK_CONTAINER.getByName("benchmark-runner");
       try {
-        await container.queueBenchmark(query, runName);
+        await container.queueBenchmark(query, runName, requestReceivedAt);
         return json({
           state: "queued",
           runName,

@@ -152,7 +152,7 @@ curl https://<worker>.workers.dev/runs/<run-name>/status.json \
   -H "Authorization: Bearer $DEMO_TOKEN"
 ```
 
-Completed runs expose authenticated `report.json`, `report.md`, and `artifacts.tar.gz` paths under the same run URL. The container filesystem is ephemeral; R2 is the durable record.
+Completed runs expose authenticated `report.json`, `report.md`, and `artifacts.tar.gz` paths under the same run URL. Final `status.json` also includes a millisecond-resolution lifecycle timeline for scheduling, container entrypoint and readiness, cleanup, benchmark execution, artifact persistence, and container destruction. The pre-persistence portion is copied into the archived `manifest.json`. The container filesystem is ephemeral; R2 is the durable record.
 
 ## Testing
 

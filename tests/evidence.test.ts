@@ -52,6 +52,52 @@ describe("evidence parsing", () => {
     expect(parsed.tools).toEqual([]);
   });
 
+  it("joins Claude's nested WebSearch call with exact results and provider synthesis", () => {
+    const parsed = parseTurn([
+      {
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "WebSearch", input: { query: "realtime audio APIs" } }] },
+      },
+      {
+        type: "user",
+        message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "Rendered search response" }] },
+        tool_use_result: {
+          query: "realtime audio APIs",
+          results: [
+            { tool_use_id: "server_1", content: [
+              { title: "First provider", url: "https://first.example/realtime" },
+              { title: "Second provider", url: "https://second.example/audio" },
+            ] },
+            "Based on the search results, the first provider offers a realtime API.",
+          ],
+        },
+      },
+    ], "", "discovery");
+
+    expect(parsed.tools).toHaveLength(1);
+    expect(parsed.tools[0]).toMatchObject({
+      name: "WebSearch",
+      callId: "toolu_1",
+      query: "realtime audio APIs",
+      rawObservable: true,
+      responseText: "Based on the search results, the first provider offers a realtime API.",
+    });
+    expect(parsed.tools[0]?.results.map((result) => [result.rank, result.url])).toEqual([
+      [1, "https://first.example/realtime"],
+      [2, "https://second.example/audio"],
+    ]);
+  });
+
+  it("preserves Claude's actual tool name for non-search tool_use_result events", () => {
+    const parsed = parseTurn([
+      { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "toolu_select", name: "ToolSearch", input: { query: "select:WebSearch" } }] } },
+      { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_select", content: "WebSearch loaded" }] }, tool_use_result: { query: "select:WebSearch", results: ["WebSearch loaded"] } },
+    ], "", "discovery");
+
+    expect(parsed.tools).toHaveLength(1);
+    expect(parsed.tools[0]).toMatchObject({ name: "ToolSearch", query: "select:WebSearch", rawObservable: true });
+  });
+
   it("preserves each exact Codex hosted-search query without inventing results", () => {
     const parsed = parseTurn([{
       type: "item.completed",

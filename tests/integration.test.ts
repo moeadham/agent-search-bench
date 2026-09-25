@@ -104,8 +104,9 @@ if (audit) {
     expect(markdown).toContain("Agent Search Bench");
     expect(markdown).toContain("## Trial summary");
     expect(markdown).toContain("| claude | 1 | 1 | 2 | AudioHub | Yes | #1 in search 1 |");
-    expect(markdown).toContain("**#1 recommendation:** AudioHub");
-    expect(markdown).toContain("| 1 | [AudioHub](https://audiohub.example) |");
+    expect(markdown).toContain("### Consolidated outcomes");
+    expect(markdown).toContain("**Exact ordered result list (observed):**<br>1. [AudioHub](https://audiohub.example)");
+    expect(markdown).toContain("**agent-reported**");
     expect(markdown).toContain("### Discovery prompt sent to this harness");
     expect(markdown).not.toContain("Mean quality");
     expect(markdown).not.toContain("Cross-harness visibility");

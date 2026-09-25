@@ -54,12 +54,13 @@ type RecommendationTrace = {
 function traceRecommendation(trial: TrialResult): RecommendationTrace {
   const searches = observedSearches(trial.discovery.tools);
   const candidate = primaryRecommendation(trial);
-  const payloadObservable = searches.some((tool) => tool.rawObservable);
-  if (!candidate || !payloadObservable) return { membership: "unknown", matches: [] };
+  if (!candidate) return { membership: "unknown", matches: [] };
   const matches = searches.flatMap((tool, searchIndex) => tool.results
     .filter((result) => recommendationMatches(candidate, result))
     .map((result) => ({ search: searchIndex + 1, rank: result.rank, result })));
-  return { membership: matches.length ? "yes" : "no", matches };
+  if (matches.length) return { membership: "yes", matches };
+  if (!searches.length || searches.some((tool) => !tool.rawObservable)) return { membership: "unknown", matches: [] };
+  return { membership: "no", matches: [] };
 }
 
 function membershipLabel(trace: RecommendationTrace): string {
@@ -76,6 +77,33 @@ function rankLabel(trace: RecommendationTrace): string {
   return `#${best.rank} in search ${best.search}`;
 }
 
+function payloadLabel(searches: ToolEvidence[]): string {
+  if (!searches.length) return "No search observed";
+  const observed = searches.filter((tool) => tool.rawObservable);
+  const rows = observed.reduce((count, tool) => count + tool.results.length, 0);
+  const unknown = searches.length - observed.length;
+  if (!unknown) return `${rows}`;
+  if (!observed.length) return "Unknown";
+  return `${rows} observed; ${unknown} call${unknown === 1 ? "" : "s"} unknown`;
+}
+
+function rationaleExcerpt(trial: TrialResult): string {
+  const text = trial.interview?.finalText.trim();
+  if (!text) return "Unavailable";
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((line) => /^(?:#{1,6}\s*)?(?:selection|provider selected|selected provider|recommendation|why selected)\b/i.test(line.trim()));
+  const relevant = lines.slice(start >= 0 ? start : 0).join(" ").replace(/\s+/g, " ").trim();
+  if (!relevant) return "Unavailable";
+  return relevant.length > 700 ? `${relevant.slice(0, 697).trimEnd()}…` : relevant;
+}
+
+function compactResults(tool: ToolEvidence): string {
+  return [...tool.results]
+    .sort((a, b) => a.rank - b.rank)
+    .map((result) => `${result.rank}. [${result.name}](${result.url})`)
+    .join("<br>");
+}
+
 export function renderMarkdown(report: BenchmarkReport): string {
   const lines: string[] = [
     "# Agent Search Bench — Harness Report",
@@ -88,7 +116,9 @@ export function renderMarkdown(report: BenchmarkReport): string {
     "",
     "## What this report measures",
     "",
-    "For each harness trial: what the web search returned, the agent’s #1 recommendation, whether that recommendation appeared in the observed results, and its best observed search rank across that trial's search calls. `Unknown` means the harness did not expose search-result payloads; the report does not reconstruct them from the agent’s later explanation.",
+    "For each harness trial: the exact observed search request, the ordered result payload returned to the agent, the agent’s recommendation, whether that recommendation appeared in the observed results, and its best observed rank. The audit explanation is shown separately as **agent-reported**, because it is not a substitute for the event trace or hidden chain-of-thought.",
+    "",
+    "Evidence labels: **observed** comes directly from native CLI tool events; **agent-reported** comes from the same-session audit interview; **Unknown** means the native stream did not expose enough evidence, and is never inferred from the interview.",
     "",
     "## Trial summary",
     "",
@@ -100,9 +130,8 @@ export function renderMarkdown(report: BenchmarkReport): string {
     const trials = report.trials.filter((trial) => trial.agent === summary.agent).sort((a, b) => a.repetition - b.repetition);
     for (const trial of trials) {
       const searches = observedSearches(trial.discovery.tools);
-      const returned = searches.reduce((count, tool) => count + tool.results.length, 0);
       const trace = traceRecommendation(trial);
-      lines.push(`| ${summary.agent} | ${trial.repetition} | ${searches.length} | ${searches.some((tool) => tool.rawObservable) ? returned : "Unknown"} | ${cell(selected(trial))} | ${cell(membershipLabel(trace))} | ${cell(rankLabel(trace))} |`);
+      lines.push(`| ${summary.agent} | ${trial.repetition} | ${searches.length} | ${cell(payloadLabel(searches))} | ${cell(selected(trial))} | ${cell(membershipLabel(trace))} | ${cell(rankLabel(trace))} |`);
     }
   }
   lines.push("");
@@ -110,34 +139,48 @@ export function renderMarkdown(report: BenchmarkReport): string {
   for (const summary of report.agents) {
     const metadata = report.harnesses?.[summary.agent];
     const trials = report.trials.filter((item) => item.agent === summary.agent).sort((a, b) => a.repetition - b.repetition);
+    const allSearches = trials.flatMap((trial) => observedSearches(trial.discovery.tools));
+    const observableSearches = allSearches.filter((tool) => tool.rawObservable).length;
+    const synthesizedSearches = allSearches.filter((tool) => Boolean(tool.responseText)).length;
     lines.push(`## ${summary.agent}`, "", `Model: \`${metadata?.modelPin ?? "unknown"}\` · Search backend: ${metadata?.searchBackend ?? "unknown"}`, "");
+    lines.push(`Trace coverage: ${observableSearches}/${allSearches.length} search result payloads observed · ${synthesizedSearches}/${allSearches.length} search-tool syntheses observed · ${trials.filter((trial) => Boolean(trial.interview?.finalText.trim())).length}/${trials.length} audit explanations captured. No hidden reasoning is claimed.`, "");
     const harnessPrompt = trials[0]?.discoveryPrompt;
     if (harnessPrompt && harnessPrompt !== report.query) {
       lines.push("### Discovery prompt sent to this harness", "", ...fenced(harnessPrompt), "");
     }
+    lines.push("### Consolidated outcomes", "", "| Trial | Exact search queries observed | Recommendation | From observed list? | Best rank |", "| ---: | --- | --- | --- | --- |");
     for (const trial of trials) {
       const searches = observedSearches(trial.discovery.tools);
       const trace = traceRecommendation(trial);
-      lines.push(`### Trial ${trial.repetition}`, "", `**#1 recommendation:** ${selected(trial)}`, "", `**Recommended from observed search results:** ${membershipLabel(trace)}`, "", `**Search rank of recommendation:** ${rankLabel(trace)}`, "");
+      const queries = searches.map((tool, index) => `${index + 1}. ${tool.query ?? "Not exposed"}`).join("<br>") || "No search observed";
+      lines.push(`| ${trial.repetition} | ${cell(queries)} | ${cell(selected(trial))} | ${cell(membershipLabel(trace))} | ${cell(rankLabel(trace))} |`);
+    }
+    lines.push("", "### Observed search evidence", "");
+    for (const trial of trials) {
+      const searches = observedSearches(trial.discovery.tools);
       if (!searches.length) {
-        lines.push("No web-search call was observed.", "");
+        lines.push(`- **Trial ${trial.repetition}:** No web-search call was observed.`, "");
         continue;
       }
       searches.forEach((tool, searchIndex) => {
-        lines.push(`#### Search ${searchIndex + 1}`, "", `**Query:** ${tool.query ? cell(tool.query) : "Not exposed"}`, "");
+        const summary = `Trial ${trial.repetition}, search ${searchIndex + 1} — ${tool.query ? cell(tool.query) : "query not exposed"} — ${tool.rawObservable ? `${tool.results.length} results` : "results unknown"}`;
+        lines.push("<details>", `<summary>${summary}</summary>`, "", `**Exact tool query (observed):** ${tool.query ? cell(tool.query) : "Not exposed"}`, "");
         if (!tool.rawObservable) {
           lines.push("The harness exposed the search call but not the returned result payload.", "");
         } else if (!tool.results.length) {
           lines.push("The observed result payload contained no result rows.", "");
         } else {
-          lines.push("| Rank | Result |", "| ---: | --- |");
-          for (const result of [...tool.results].sort((a, b) => a.rank - b.rank)) {
-            lines.push(`| ${result.rank} | ${cell(`[${result.name}](${result.url})`)} |`);
-          }
-          lines.push("");
+          lines.push(`**Exact ordered result list (observed):**<br>${compactResults(tool)}`, "");
         }
+        if (tool.responseText) {
+          lines.push("**Search-tool synthesis shown to the agent (observed):**", "", ...fenced(tool.responseText), "");
+        }
+        lines.push("</details>", "");
       });
     }
+    lines.push("### Why the agent says it selected the recommendation", "", "These are concise excerpts from the fixed same-session audit interview. They are **agent-reported**, not hidden reasoning and not proof that an unobserved search result existed.", "");
+    for (const trial of trials) lines.push(`- **Trial ${trial.repetition}:** ${cell(rationaleExcerpt(trial))}`);
+    lines.push("");
     if (trials.some((trial) => trial.interviewPerformedNewResearch)) lines.push("⚠️ At least one interview trace contains a search/fetch/browser tool call despite the no-new-research instruction.", "");
     lines.push(`Full discovery answers, audit transcripts, and raw tool payloads remain in \`trials/${summary.agent}/<trial>/\`.`, "");
   }

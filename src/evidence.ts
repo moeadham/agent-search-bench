@@ -132,17 +132,48 @@ function appendTool(tools: ToolEvidence[], tool: ToolEvidence): void {
       pending.rawObservable = true;
       if (tool.results.length) pending.results = tool.results;
       if (tool.provider) pending.provider = tool.provider;
+      if (tool.responseText) pending.responseText = tool.responseText;
       return;
     }
   }
   const key = `${tool.phase}|${tool.callId ?? ""}|${tool.name}|${tool.query ?? ""}`;
-  const existing = tools.find((item) => `${item.phase}|${item.callId ?? ""}|${item.name}|${item.query ?? ""}` === key);
+  const existing = tool.callId && tool.output !== undefined
+    ? tools.find((item) => item.phase === tool.phase && item.callId === tool.callId)
+    : tools.find((item) => `${item.phase}|${item.callId ?? ""}|${item.name}|${item.query ?? ""}` === key);
   if (!existing) return void tools.push(tool);
   if (tool.results.length) existing.results = tool.results;
   if (tool.rawObservable) existing.rawObservable = true;
   if (tool.output !== undefined) existing.output = tool.output;
   if (tool.input !== undefined && existing.input === undefined) existing.input = tool.input;
   if (tool.provider && !existing.provider) existing.provider = tool.provider;
+  if (tool.responseText) existing.responseText = tool.responseText;
+}
+
+function claudeToolResult(event: Record<string, unknown>, phase: "discovery" | "interview", tools: ToolEvidence[]): ToolEvidence | undefined {
+  if (event.type !== "user" || !isRecord(event.tool_use_result)) return undefined;
+  const message = isRecord(event.message) ? event.message : undefined;
+  const blocks = message && Array.isArray(message.content) ? message.content : [];
+  const resultBlock = blocks.find((block): block is Record<string, unknown> => isRecord(block) && block.type === "tool_result");
+  if (!resultBlock) return undefined;
+
+  const payload = event.tool_use_result;
+  const id = firstString(resultBlock, ["tool_use_id", "toolUseId"]);
+  const matchingCall = id ? tools.find((tool) => tool.callId === id) : undefined;
+  const query = queryFrom(payload);
+  const payloadResults = payload.results;
+  const responseText = Array.isArray(payloadResults)
+    ? payloadResults.find((item): item is string => typeof item === "string" && Boolean(item.trim()))?.trim()
+    : undefined;
+  return {
+    name: matchingCall?.name ?? "WebSearch",
+    phase,
+    ...(id ? { callId: id } : {}),
+    ...(query ? { query } : {}),
+    output: payload,
+    ...(responseText ? { responseText } : {}),
+    results: resultRows(payloadResults, query, matchingCall?.name ?? "WebSearch"),
+    rawObservable: true,
+  };
 }
 
 export function parseTurn(events: unknown[], stdout: string, phase: "discovery" | "interview"): TurnEvidence {
@@ -175,6 +206,17 @@ export function parseTurn(events: unknown[], stdout: string, phase: "discovery" 
       if (type === "result" || type === "final" || type === "completion") {
         const text = textValue(record.result ?? record.final ?? record.text ?? record.content ?? record.message);
         if (text) textCandidates.push(text);
+      }
+    }
+
+    // Claude stream-json keeps the exact ordered WebSearch rows and the
+    // search-tool synthesis in a top-level `tool_use_result`, separate from
+    // the nested message `tool_result`. Preserve both as observed evidence.
+    if (isRecord(event)) {
+      const claudeResult = claudeToolResult(event, phase, tools);
+      if (claudeResult) {
+        appendTool(tools, claudeResult);
+        continue;
       }
     }
 

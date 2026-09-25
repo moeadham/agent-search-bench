@@ -72,6 +72,8 @@ export interface ToolEvidence {
   provider?: string;
   input?: unknown;
   output?: unknown;
+  /** Search-provider synthesis or answer text delivered alongside ordered result rows. */
+  responseText?: string;
   results: SearchResultEvidence[];
   rawObservable: boolean;
 }

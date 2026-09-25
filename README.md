@@ -2,7 +2,17 @@
 
 A TypeScript CLI for comparing agentic web discovery. It runs a base prompt through enabled agent harnesses, interviews each agent in the same session, preserves observable tool evidence, and reports the returned search-result lists and the agent's recommendation. The current deployment enables Claude Code, Codex, Hermes, and OpenClaw; Cursor remains implemented but disabled and is not installed in the image.
 
-For every trial, the report answers four questions: what the search provider returned, what the agent recommended, whether that recommendation was in the observed result list, and its best observed search rank.
+The goal is to help product and website owners understand how agents discover and select products for a particular search term—and, ultimately, what improves their visibility. The primary view is therefore organized by agent harness rather than as a generic website leaderboard.
+
+For every harness, the report answers five questions:
+
+1. What exact prompt did the agent receive?
+2. What search tool/provider did it call, with what exact queries or arguments?
+3. What exact ordered results came back from that tool?
+4. What did the agent recommend, was it in the observed list, and at what rank?
+5. What reasons did the agent state in the fixed same-session audit interview?
+
+The evidence boundary is deliberate. Native tool events are labeled **observed**. Audit explanations are labeled **agent-reported** and are not presented as hidden chain-of-thought. If a native CLI does not expose its result payload, the result list and recommendation rank remain `Unknown`; the framework never reconstructs them from the agent's prose.
 
 ## Requirements
 
@@ -97,11 +107,15 @@ The Markdown report shows:
 
 - the exact query sent with each search call
 - the ordered result rows returned by the search provider
-- the agent's #1 recommendation
+- any search-provider synthesis that the native tool delivered to the agent
+- the agent's extracted recommendation
 - whether that recommendation was present in those rows
 - the recommendation's best observed rank
+- a concise, explicitly agent-reported excerpt explaining the selection
 
-If a harness exposes the search call but not its result payload, membership and rank are reported as `Unknown`; the framework does not substitute the agent's self-report. The model-assisted extraction step only identifies the #1 recommendation in free-form prose. It does not score quality or decide membership/rank.
+If a harness exposes the search call but not its result payload, membership and rank are reported as `Unknown`; the framework does not substitute the agent's self-report. A recommendation is marked absent only when every relevant result payload is observable. The model-assisted extraction step identifies the recommendation in free-form prose; it does not decide observed membership or rank.
+
+Claude's stream exposes ordered native WebSearch results plus the search-tool synthesis shown to the model, and the framework preserves both. Hermes and OpenClaw expose their native result payloads. Codex currently exposes its exact hosted-search calls and queries through `codex exec --json`, but not the complete ordered result payload, so Codex result-list membership remains `Unknown` even when the audit describes candidates.
 
 ## Container
 

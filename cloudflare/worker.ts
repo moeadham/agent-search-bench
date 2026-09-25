@@ -216,7 +216,7 @@ export class BenchmarkContainer extends Container<BenchEnv> {
         durationsMs: timelineDurations(timeline),
         artifacts: {
           reportJson: `/runs/${runName}/report.json`,
-          reportMarkdown: `/runs/${runName}/report.md`,
+          reportHtml: `/runs/${runName}/report.html`,
           archive: `/runs/${runName}/artifacts.tar.gz`,
         },
       });
@@ -278,8 +278,8 @@ export class BenchmarkContainer extends Container<BenchEnv> {
     }
 
     const reportJson = await this.execute(["cat", `/runs/${runId}/report.json`]);
-    const reportMarkdown = await this.execute(["cat", `/runs/${runId}/report.md`]);
-    if (reportJson.exitCode !== 0 || reportMarkdown.exitCode !== 0) {
+    const reportHtml = await this.execute(["cat", `/runs/${runId}/report.html`]);
+    if (reportJson.exitCode !== 0 || reportHtml.exitCode !== 0) {
       throw new Error("Benchmark did not produce both report files");
     }
 
@@ -312,8 +312,8 @@ export class BenchmarkContainer extends Container<BenchEnv> {
       this.env.ARTIFACTS.put(`${runName}/report.json`, reportJson.stdout, {
         httpMetadata: { contentType: "application/json; charset=utf-8" },
       }),
-      this.env.ARTIFACTS.put(`${runName}/report.md`, reportMarkdown.stdout, {
-        httpMetadata: { contentType: "text/markdown; charset=utf-8" },
+      this.env.ARTIFACTS.put(`${runName}/report.html`, reportHtml.stdout, {
+        httpMetadata: { contentType: "text/html; charset=utf-8" },
       }),
     ]);
     return JSON.parse(reportJson.stdout) as unknown;
@@ -531,7 +531,7 @@ export default {
           artifacts: {
             status: `/runs/${runName}/status.json`,
             reportJson: `/runs/${runName}/report.json`,
-            reportMarkdown: `/runs/${runName}/report.md`,
+            reportHtml: `/runs/${runName}/report.html`,
             archive: `/runs/${runName}/artifacts.tar.gz`,
           },
         }, 202);
@@ -548,7 +548,7 @@ export default {
     }
 
     const match = url.pathname.match(
-      /^\/runs\/(run-[a-f0-9-]+)\/(status\.json|report\.json|report\.md|artifacts\.tar\.gz)$/,
+      /^\/runs\/(run-[a-f0-9-]+)\/(status\.json|report\.json|report\.html|artifacts\.tar\.gz)$/,
     );
     if (request.method === "GET" && match) {
       const [, runName, filename] = match;

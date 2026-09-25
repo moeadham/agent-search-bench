@@ -52,9 +52,26 @@ if (audit) {
     await chmod(fake, 0o755);
 
     let judgeRequests = 0;
-    server = createServer((_request, response) => {
+    let analysisRequests = 0;
+    server = createServer(async (request, response) => {
+      let body = "";
+      for await (const chunk of request) body += chunk;
       judgeRequests += 1;
       response.setHeader("content-type", "application/json");
+      if (body.includes("agent_search_content_opportunity")) {
+        analysisRequests += 1;
+        response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+          title: "Realtime audio model API comparison",
+          targetQueries: [analysisRequests === 1 ? "invented query" : "audio aggregators"],
+          outline: [
+            { heading: "Available models", purpose: "Document the supported model catalog." },
+            { heading: "API examples", purpose: "Show how to select and stream a model." },
+          ],
+          evidenceToInclude: ["A current model table", "Measured streaming latency"],
+          rationale: "The observed query asks for an audio-model aggregator.",
+        }) } }] }));
+        return;
+      }
       if (judgeRequests === 1) {
         response.end(JSON.stringify({ choices: [{ message: { content: "not-json" } }] }));
         return;
@@ -98,17 +115,17 @@ if (audit) {
     expect(report.trials.find((trial) => trial.agent === "claude")?.discoveryPrompt).toBe("Find an audio model aggregator\n\nResearch the live web before recommending one.");
     expect(report.trials.find((trial) => trial.agent === "codex")?.discoveryPrompt).toBe("Find an audio model aggregator");
     expect(await readFile(join(run, "trials", "codex", "1", "interview.txt"), "utf8")).toContain("selected AudioHub");
-    await writeFile(join(run, "report.md"), "stale");
     await generateReport(run);
-    const markdown = await readFile(join(run, "report.md"), "utf8");
-    expect(markdown).toContain("Agent Search Bench");
-    expect(markdown).toContain("## Trial summary");
-    expect(markdown).toContain("| claude | 1 | 1 | 2 | AudioHub | Yes | #1 in search 1 |");
-    expect(markdown).toContain("### Consolidated outcomes");
-    expect(markdown).toContain("**Exact ordered result list (observed):**<br>1. [AudioHub](https://audiohub.example)");
-    expect(markdown).toContain("**agent-reported**");
-    expect(markdown).toContain("### Discovery prompt sent to this harness");
-    expect(markdown).not.toContain("Mean quality");
-    expect(markdown).not.toContain("Cross-harness visibility");
+    const html = await readFile(join(run, "report.html"), "utf8");
+    expect(html).toContain("Agent Search Bench");
+    expect(html).toContain("How agents searched and what to create next");
+    expect(html).toContain("AudioHub was the most frequent #1 recommendation");
+    expect(html).toContain("Realtime audio model API comparison");
+    expect(html).toContain("Exact observed query:");
+    expect(html).toContain("Agent-reported; not hidden reasoning");
+    const regenerated = JSON.parse(await readFile(join(run, "report.json"), "utf8")) as BenchmarkReport;
+    expect(regenerated.insights).toHaveLength(5);
+    expect(regenerated.insights.every((insight) => insight.status === "ok")).toBe(true);
+    expect(regenerated.insights.some((insight) => insight.attempts === 2)).toBe(true);
   });
 });

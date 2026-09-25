@@ -1,5 +1,6 @@
 import { SCHEMA_VERSION, type AgentId } from "./constants.js";
-import type { AgentSummary, BenchmarkReport, EntityMetric, TrialResult } from "./types.js";
+import { buildTrialJourney } from "./report-evidence.js";
+import type { AgentSummary, BenchmarkReport, EntityMetric, HarnessInsight, TrialResult } from "./types.js";
 
 function normalizedEntityName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -47,7 +48,7 @@ function pairwiseJaccard(sets: Set<string>[]): number | null {
   return mean(values);
 }
 
-export function buildReport(runId: string, query: string, trials: TrialResult[], aliases: Record<string, string> = {}): BenchmarkReport {
+export function buildReport(runId: string, query: string, trials: TrialResult[], aliases: Record<string, string> = {}, insights: HarnessInsight[] = []): BenchmarkReport {
   const reconciledTrials = reconcileNameOnlyCandidates(trials);
   const scheduled = reconciledTrials.length;
   const successful = reconciledTrials.filter((trial) => trial.success);
@@ -150,5 +151,7 @@ export function buildReport(runId: string, query: string, trials: TrialResult[],
     entities,
     agents,
     trials: reconciledTrials,
+    journeys: reconciledTrials.map((trial) => buildTrialJourney(trial, aliases)),
+    insights,
   };
 }

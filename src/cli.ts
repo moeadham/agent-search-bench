@@ -74,11 +74,11 @@ program.command("run")
     const query = await readQuery(options);
     const directory = await runBenchmark({ config: loaded.config, configRaw: loaded.raw, query });
     console.log(`Run complete: ${directory}`);
-    console.log(`Report: ${resolve(directory, "report.md")}`);
+    console.log(`Report: ${resolve(directory, "report.html")}`);
   });
 
 program.command("report")
-  .description("Regenerate JSON and Markdown reports from captured trial evidence")
+  .description("Regenerate JSON and HTML reports from captured trial evidence")
   .argument("<run-directory>")
   .action(async (runDirectory: string) => {
     await access(resolve(runDirectory, "manifest.json"));

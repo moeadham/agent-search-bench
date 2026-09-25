@@ -7,7 +7,7 @@ import { adapters } from "./adapters/index.js";
 import type { AdapterContext } from "./adapters/base.js";
 import { AGENT_IDS, INTERVIEW_PROMPT, INTERVIEW_PROMPT_VERSION, SCHEMA_VERSION, type AgentId } from "./constants.js";
 import { extractAnswerCandidates, interviewDidResearch, parseTurn } from "./evidence.js";
-import { judgeTrial } from "./judge.js";
+import { analyzeHarnesses, judgeTrial } from "./judge.js";
 import { runProcess } from "./process.js";
 import { redactText, redactValue } from "./redact.js";
 import { generateReport } from "./report.js";
@@ -419,9 +419,10 @@ export async function runBenchmark(input: { config: BenchmarkConfig; configRaw: 
     if (models.length) agent.resolvedModels = models;
     if (providers.length) agent.resolvedProviders = providers;
   }
+  const insights = await analyzeHarnesses({ config: input.config.judge, query: input.query, trials });
   manifest.completedAt = new Date().toISOString();
   await privateWrite(join(runDirectory, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  await generateReport(runDirectory);
+  await generateReport(runDirectory, insights);
   return runDirectory;
 }
 

@@ -11,8 +11,10 @@ For every harness, the benchmark should make it easy to answer:
 3. What exact, ordered results did the search tool return to the agent?
 4. What did the agent recommend, and was that recommendation present in the observed results? At what rank?
 5. What selection criteria did the agent report in the fixed same-session audit interview?
+6. Which observed results did the agent open or cite on the path to its recommendation?
+7. What focused content page could better match the exact searches and result patterns observed for that harness?
 
-The report should consolidate repeated trials by harness and remain concise. Full raw events and transcripts belong in the evidence artifacts, not in the main narrative.
+The static HTML report should consolidate repeated trials by harness, lead with the actionable finding and content opportunity, and keep detailed evidence in expandable sections. Full raw events and transcripts belong in the evidence artifacts, not in the main narrative.
 
 ## Evidence standard
 

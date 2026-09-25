@@ -200,6 +200,41 @@ export interface AgentSummary {
   selectionAgreement: number | null;
 }
 
+export interface EvidencePosition {
+  search: number;
+  rank: number;
+  url: string;
+}
+
+export interface TrialEvidenceJourney {
+  agent: AgentId;
+  repetition: number;
+  recommendation?: string;
+  relationship: "direct_result" | "mentioned_result" | "not_observed" | "unknown";
+  basis: "returned_and_opened" | "returned_not_opened" | "mentioned_only" | "not_observed" | "unknown";
+  ownedDomainRank: EvidencePosition | null;
+  mentionRank: EvidencePosition | null;
+  bestEvidenceRank: EvidencePosition | null;
+  openedPages: string[];
+  answerCitations: string[];
+}
+
+export interface ContentPageSuggestion {
+  title: string;
+  targetQueries: string[];
+  outline: Array<{ heading: string; purpose: string }>;
+  evidenceToInclude: string[];
+  rationale: string;
+}
+
+export interface HarnessInsight {
+  agent: AgentId;
+  status: "ok" | "invalid" | "error" | "skipped";
+  suggestion?: ContentPageSuggestion;
+  error?: string;
+  attempts: number;
+}
+
 export interface BenchmarkReport {
   schemaVersion: string;
   runId: string;
@@ -211,4 +246,6 @@ export interface BenchmarkReport {
   entities: EntityMetric[];
   agents: AgentSummary[];
   trials: TrialResult[];
+  journeys: TrialEvidenceJourney[];
+  insights: HarnessInsight[];
 }

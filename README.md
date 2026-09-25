@@ -4,13 +4,15 @@ A TypeScript CLI for comparing agentic web discovery. It runs a base prompt thro
 
 The goal is to help product and website owners understand how agents discover and select products for a particular search term—and, ultimately, what improves their visibility. The primary view is therefore organized by agent harness rather than as a generic website leaderboard.
 
-For every harness, the report answers five questions:
+For every harness, the report answers seven questions:
 
 1. What exact prompt did the agent receive?
 2. What search tool/provider did it call, with what exact queries or arguments?
 3. What exact ordered results came back from that tool?
-4. What did the agent recommend, was it in the observed list, and at what rank?
-5. What reasons did the agent state in the fixed same-session audit interview?
+4. Which result pages did it open or cite?
+5. What did the agent recommend, and was its domain returned, mentioned in another result, absent, or unobservable?
+6. What reasons did the agent state in the fixed same-session audit interview?
+7. What focused content page could better match the exact searches the agent performed?
 
 The evidence boundary is deliberate. Native tool events are labeled **observed**. Audit explanations are labeled **agent-reported** and are not presented as hidden chain-of-thought. If a native CLI does not expose its result payload, the result list and recommendation rank remain `Unknown`; the framework never reconstructs them from the agent's prose.
 
@@ -19,7 +21,7 @@ The evidence boundary is deliberate. Native tool events are labeled **observed**
 - Node.js 26+
 - pnpm
 - The enabled agent CLIs, or Docker
-- API credentials for enabled agents and a separate OpenAI-compatible recommendation extractor
+- API credentials for enabled agents and a separate OpenAI-compatible report-analysis model
 
 Current Codex automation uses the global search switch in `codex --search exec --json` and exact-session `exec resume`. For ephemeral API-key authentication, current Codex versions use `CODEX_API_KEY`; you may configure `OPENAI_API_KEY` instead if your installed provider path expects it.
 
@@ -46,9 +48,9 @@ export JUDGE_API_KEY="..."
 export ANTHROPIC_API_KEY_FILE=/run/secrets/anthropic
 ```
 
-The placeholder Hermes/OpenClaw credential names are intentionally configurable. Change `credentialEnv` to the actual variable used by the selected provider, such as `OPENROUTER_API_KEY`. The recommendation extractor must expose an OpenAI-compatible `/chat/completions` endpoint with JSON-schema structured output.
+The placeholder Hermes/OpenClaw credential names are intentionally configurable. Change `credentialEnv` to the actual variable used by the selected provider, such as `OPENROUTER_API_KEY`. The report-analysis model extracts the primary recommendation and proposes the captured-evidence-only content opportunity; it must expose an OpenAI-compatible `/chat/completions` endpoint with JSON-schema structured output.
 
-Model and search providers are configured independently. The checked-in deployment pins Hermes search to its documented Firecrawl default (`FIRECRAWL_API_KEY`) and OpenClaw search to the first provider in its auto-detection order, Brave (`BRAVE_API_KEY`). OpenRouter remains the model provider for both agents and for the small recommendation-extraction step.
+Model and search providers are configured independently. The checked-in deployment pins Hermes search to its documented Firecrawl default (`FIRECRAWL_API_KEY`) and OpenClaw search to the first provider in its auto-detection order, Brave (`BRAVE_API_KEY`). OpenRouter remains the model provider for both agents and for the structured report-analysis step.
 
 An agent may optionally define `discoveryPromptSuffix`. The suffix is appended only for that harness and the exact resulting prompt is retained in every trial and shown in the report. The checked-in deployment adds `Research the live web before recommending one.` for Claude because live testing showed that the unmodified discovery prompt did not reliably trigger Claude's search tool. Other harnesses receive the base query verbatim.
 
@@ -88,7 +90,7 @@ node dist/cli.js report runs/<run-id>
 runs/<run-id>/
 ├── manifest.json
 ├── report.json
-├── report.md
+├── report.html
 └── trials/<agent>/<repetition>/
     ├── discovery.events.jsonl
     ├── discovery.txt
@@ -103,15 +105,19 @@ runs/<run-id>/
 
 Artifacts are created with private permissions. Configured secret literals, authorization headers, credential-shaped strings, and sensitive URL parameters are redacted before writing. Raw event files mean raw observable CLI events after mandatory redaction; they are not unredacted credential dumps.
 
-The Markdown report shows:
+The self-contained HTML report consolidates repeated trials by harness and shows:
 
 - the exact query sent with each search call
 - the ordered result rows returned by the search provider
 - any search-provider synthesis that the native tool delivered to the agent
 - the agent's extracted recommendation
-- whether that recommendation was present in those rows
-- the recommendation's best observed rank
+- whether the recommendation's own domain was returned or it was only mentioned in another result
+- owned-domain, title/snippet mention, and best-evidence ranks
+- pages opened and URLs cited in the answer
 - a concise, explicitly agent-reported excerpt explaining the selection
+- a captured-evidence-only suggestion for a content page targeting the exact observed searches
+
+Detailed trial evidence uses native expandable sections and requires no JavaScript. `report.json` remains the canonical machine-readable artifact and retains validated content suggestions so HTML regeneration does not make another model call.
 
 If a harness exposes the search call but not its result payload, membership and rank are reported as `Unknown`; the framework does not substitute the agent's self-report. A recommendation is marked absent only when every relevant result payload is observable. The model-assisted extraction step identifies the recommendation in free-form prose; it does not decide observed membership or rank.
 
@@ -166,7 +172,7 @@ curl https://<worker>.workers.dev/runs/<run-name>/status.json \
   -H "Authorization: Bearer $DEMO_TOKEN"
 ```
 
-Completed runs expose authenticated `report.json`, `report.md`, and `artifacts.tar.gz` paths under the same run URL. Final `status.json` also includes a millisecond-resolution lifecycle timeline for scheduling, container entrypoint and readiness, cleanup, benchmark execution, artifact persistence, and container destruction. The pre-persistence portion is copied into the archived `manifest.json`. The container filesystem is ephemeral; R2 is the durable record.
+Completed runs expose authenticated `report.html`, `report.json`, and `artifacts.tar.gz` paths under the same run URL. Final `status.json` also includes a millisecond-resolution lifecycle timeline for scheduling, container entrypoint and readiness, cleanup, benchmark execution, artifact persistence, and container destruction. The pre-persistence portion is copied into the archived `manifest.json`. The container filesystem is ephemeral; R2 is the durable record.
 
 ## Testing
 

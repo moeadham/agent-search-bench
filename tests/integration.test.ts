@@ -121,8 +121,12 @@ if (audit) {
     expect(html).toContain("How agents searched and what to create next");
     expect(html).toContain("AudioHub was the most frequent #1 recommendation");
     expect(html).toContain("Realtime audio model API comparison");
+    expect(html).toContain("What page should you create?");
+    expect(html).toContain("All searches and returned results");
+    expect(html).toContain("All trial recommendations (2)");
     expect(html).toContain("Exact observed query:");
     expect(html).toContain("Agent-reported; not hidden reasoning");
+    expect(html).not.toContain("<table>");
     const regenerated = JSON.parse(await readFile(join(run, "report.json"), "utf8")) as BenchmarkReport;
     expect(regenerated.insights).toHaveLength(5);
     expect(regenerated.insights.every((insight) => insight.status === "ok")).toBe(true);

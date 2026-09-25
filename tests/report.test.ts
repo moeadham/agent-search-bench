@@ -103,4 +103,50 @@ describe("actionable report evidence", () => {
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).not.toContain('href="javascript:');
   });
+
+  it("renders searches, recommendations, and agent explanations as readable rows", () => {
+    const sample = trial({
+      interview: {
+        finalText: "## Selection\n\n**Acme** was selected.\n\n- Fast streaming\n- See [its docs](https://acme.example/docs)\n\n1. First criterion\n2. Second criterion",
+        usage: null,
+        costUsd: null,
+        tools: [],
+      },
+    });
+    const report: BenchmarkReport = {
+      schemaVersion: "1.0.0",
+      runId: "run",
+      query: "find a provider",
+      generatedAt: new Date(0).toISOString(),
+      scheduledTrials: 1,
+      successfulTrials: 1,
+      harnesses: { openclaw: { enabled: true, command: "openclaw", modelPin: "model" } },
+      entities: [],
+      agents: [{ agent: "openclaw", scheduled: 1, successful: 1, successRate: 1, meanQualityScore: null, candidateSetStability: null, selectionAgreement: 1 }],
+      trials: [sample],
+      journeys: [buildTrialJourney(sample, {})],
+      insights: [{
+        agent: "openclaw",
+        status: "ok",
+        attempts: 1,
+        suggestion: {
+          title: "Realtime provider comparison",
+          targetQueries: ["best provider"],
+          outline: [{ heading: "Comparison", purpose: "Compare the returned candidates." }],
+          evidenceToInclude: ["Latency"],
+          rationale: "Matches the query agents actually used.",
+        },
+      }],
+    };
+    const html = renderHtml(report);
+    expect(html).toContain("What page should you create?");
+    expect(html).toContain("All searches and returned results (1)");
+    expect(html).toContain("All trial recommendations (1)");
+    expect(html).toContain("<h5>Selection</h5>");
+    expect(html).toContain("<strong>Acme</strong> was selected.");
+    expect(html).toContain("<ul><li>Fast streaming</li>");
+    expect(html).toContain('<a href="https://acme.example/docs"');
+    expect(html).not.toContain("## Selection");
+    expect(html).not.toContain("<table>");
+  });
 });

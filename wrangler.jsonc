@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-search-bench-demo",
+  "main": "cloudflare/worker.ts",
+  "compatibility_date": "2026-09-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "name": "agent-search-bench-runner",
+      "class_name": "BenchmarkContainer",
+      "image": "./Dockerfile",
+      "image_build_context": ".",
+      "instance_type": "standard-3",
+      "max_instances": 3,
+      "observability": {
+        "logs": { "enabled": true }
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BENCHMARK_CONTAINER",
+        "class_name": "BenchmarkContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BenchmarkContainer"]
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "agent-search-bench-demo-runs"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true }
+  }
+}

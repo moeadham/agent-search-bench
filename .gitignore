@@ -8,3 +8,5 @@ agent-rank.config.json
 *.log
 .DS_Store
 .agent-runtime/
+.cloudflare-demo-token
+.wrangler/

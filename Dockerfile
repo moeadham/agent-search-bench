@@ -30,7 +30,7 @@ USER node
 
 # Official installers are URL-overridable so a reviewed, versioned installer
 # artifact can be supplied by production builds.
-RUN curl -fsSL "$HERMES_INSTALL_URL" | bash \
+RUN curl -fsSL "$HERMES_INSTALL_URL" | bash -s -- --skip-browser \
     && test -x "$INSTALL_HOME/.local/bin/hermes"
 
 # Hermes' Firecrawl provider lazily imports an optional dependency. Ask
@@ -68,5 +68,8 @@ WORKDIR /app
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/package.json ./package.json
+COPY --chown=node:node cloudflare/agent-search-bench.config.json /config/agent-search-bench.config.json
+COPY --chown=node:node scripts/container-entrypoint.sh /app/container-entrypoint.sh
+RUN chmod 755 /app/container-entrypoint.sh
 USER node
-ENTRYPOINT ["node", "/app/dist/cli.js"]
+ENTRYPOINT ["/app/container-entrypoint.sh"]

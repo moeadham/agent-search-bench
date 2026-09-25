@@ -20,6 +20,8 @@
     "test:live": "sh scripts/live-acceptance.sh",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:cloudflare": "tsc -p tsconfig.cloudflare.json --noEmit",
+    "deploy:cloudflare": "wrangler deploy",
     "start": "node dist/cli.js"
   },
   "engines": {
@@ -27,14 +29,17 @@
   },
   "packageManager": "pnpm@11.22.0",
   "dependencies": {
+    "@cloudflare/containers": "^0.3.7",
     "commander": "^14.0.1",
     "p-limit": "^7.2.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260924.1",
     "@types/node": "^24.10.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.14",
+    "wrangler": "^4.137.0"
   }
 }

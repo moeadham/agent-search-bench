@@ -120,11 +120,46 @@ docker compose run --rm asbench run --query "Find me a provider that aggregates 
 
 The Compose service is non-root, read-only except for `/tmp`, and mounts only configuration and output—not a source repository or Docker socket. Every run records the actual CLI `--version` output.
 
+## Cloudflare Containers demo
+
+The checked-in Worker runs the same CLI image on a Cloudflare Container and writes reports plus the complete evidence archive to a private R2 bucket. Long benchmarks are queued through the container Durable Object: `POST /runs` returns `202` immediately, while `status.json` reports `queued`, `running`, `complete`, or `failed`.
+
+Create the bucket and configure Worker secrets before the first deployment:
+
+```bash
+pnpm exec wrangler r2 bucket create agent-search-bench-demo-runs
+
+pnpm exec wrangler secret put ANTHROPIC_API_KEY
+pnpm exec wrangler secret put CODEX_API_KEY
+pnpm exec wrangler secret put OPENROUTER_API_KEY
+pnpm exec wrangler secret put FIRECRAWL_API_KEY
+pnpm exec wrangler secret put BRAVE_API_KEY
+pnpm exec wrangler secret put JUDGE_API_KEY
+pnpm exec wrangler secret put DEMO_TOKEN
+
+pnpm deploy:cloudflare
+```
+
+Start and poll a run with the bearer token stored in `DEMO_TOKEN`:
+
+```bash
+curl -X POST https://<worker>.workers.dev/runs \
+  -H "Authorization: Bearer $DEMO_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"query":"find me an api for realtime audio tts but with every model available"}'
+
+curl https://<worker>.workers.dev/runs/<run-name>/status.json \
+  -H "Authorization: Bearer $DEMO_TOKEN"
+```
+
+Completed runs expose authenticated `report.json`, `report.md`, and `artifacts.tar.gz` paths under the same run URL. The container filesystem is ephemeral; R2 is the durable record.
+
 ## Testing
 
 ```bash
 pnpm test
 pnpm typecheck
+pnpm typecheck:cloudflare
 pnpm build
 pnpm test:container
 ```

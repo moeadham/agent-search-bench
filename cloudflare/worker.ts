@@ -39,7 +39,7 @@ const maximumQueryLength = 10_000;
 const commandTimeoutMs = 15 * 60 * 1_000;
 
 export class BenchmarkContainer extends Container<BenchEnv> {
-  sleepAfter = "20m";
+  sleepAfter = "1m";
   entrypoint = ["tail", "-f", "/dev/null"];
   enableInternet = true;
 
@@ -95,12 +95,12 @@ export class BenchmarkContainer extends Container<BenchEnv> {
 
   async runScheduledBenchmark(payload: ScheduledRun): Promise<void> {
     const { query, runName } = payload;
-    await this.writeStatus(runName, {
-      state: "running",
-      runName,
-      startedAt: new Date().toISOString(),
-    });
     try {
+      await this.writeStatus(runName, {
+        state: "running",
+        runName,
+        startedAt: new Date().toISOString(),
+      });
       const result = await this.runBenchmark(
         query,
         runName,
@@ -121,12 +121,22 @@ export class BenchmarkContainer extends Container<BenchEnv> {
       });
     } catch (error) {
       console.error("scheduled_benchmark_failed", { runName, error });
-      await this.writeStatus(runName, {
-        state: "failed",
-        runName,
-        error: error instanceof Error ? error.message : "Benchmark failed",
-        failedAt: new Date().toISOString(),
-      });
+      try {
+        await this.writeStatus(runName, {
+          state: "failed",
+          runName,
+          error: error instanceof Error ? error.message : "Benchmark failed",
+          failedAt: new Date().toISOString(),
+        });
+      } catch (statusError) {
+        console.error("failed_status_write_failed", { runName, statusError });
+      }
+    } finally {
+      try {
+        await this.destroy();
+      } catch (stopError) {
+        console.error("container_stop_failed", { runName, stopError });
+      }
     }
   }
 

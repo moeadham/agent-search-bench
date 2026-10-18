@@ -2,6 +2,7 @@ FROM node:26-bookworm-slim AS agent-runtime
 
 ARG CLAUDE_VERSION=latest
 ARG CODEX_VERSION=latest
+ARG DEEPSEEK_VERSION=next
 ARG OPENCLAW_VERSION=latest
 ARG OPENCLAW_BRAVE_PLUGIN_VERSION=latest
 ARG HERMES_INSTALL_URL=https://hermes-agent.nousresearch.com/install.sh
@@ -21,6 +22,7 @@ ENV HOME=$INSTALL_HOME
 RUN npm install -g \
       "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
       "@openai/codex@${CODEX_VERSION}" \
+      "@deepseek-ai/dsh@${DEEPSEEK_VERSION}" \
       "openclaw@${OPENCLAW_VERSION}" \
     && mkdir -p /opt/openclaw-template /opt/openclaw-plugins \
     && npm install --prefix /opt/openclaw-plugins/brave-package "@openclaw/brave-plugin@${OPENCLAW_BRAVE_PLUGIN_VERSION}" \

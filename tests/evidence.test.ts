@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractAnswerCandidates, parseTurn } from "../src/evidence.js";
+import { extractAnswerCandidates, parseTurn, toolQueries } from "../src/evidence.js";
 
 describe("evidence parsing", () => {
   it("extracts sessions, final text, and observable search results while ignoring unknown fields", () => {
@@ -147,5 +147,66 @@ describe("evidence parsing", () => {
     expect(parsed.tools).toHaveLength(1);
     expect(parsed.tools[0]).toMatchObject({ name: "web_search", query: "realtime audio router", provider: "brave", callId: "oc-1" });
     expect(parsed.tools[0]?.results.map((result) => result.url)).toEqual(["https://one.example", "https://two.example"]);
+  });
+
+  it("joins DeepSeek Session tool events and preserves ordered Search API rows", () => {
+    const parsed = parseTurn([
+      { type: "session", sessionId: "session-deepseek" },
+      { type: "tool_call", callId: "call-1", tool: "web_search", input: { queries: ["realtime audio API", "all TTS models"] } },
+      { type: "tool/call", data: { turn: 1, step: 1, callId: "call-1", name: "web_search", arguments: JSON.stringify({ queries: ["realtime audio API", "all TTS models"] }) } },
+      {
+        type: "tool/result",
+        surfaceOp: "append",
+        data: {
+          turn: 1,
+          step: 1,
+          message: { toolCallId: "call-1", content: [{ type: "text", text: "External web content follows." }] },
+          meta: {
+            sources: [
+              { title: "First", url: "https://first.example/audio", snippet: "Realtime streaming." },
+              { title: "Second", url: "https://second.example/tts", snippet: "Many models." },
+            ],
+            truncated: false,
+          },
+        },
+      },
+      { type: "final", text: "I recommend [First](https://first.example/audio)." },
+    ], "", "discovery");
+
+    expect(parsed.sessionId).toBe("session-deepseek");
+    expect(parsed.tools).toHaveLength(1);
+    expect(toolQueries(parsed.tools[0]!)).toEqual(["realtime audio API", "all TTS models"]);
+    expect(parsed.tools[0]).toMatchObject({ name: "web_search", callId: "call-1", rawObservable: true });
+    expect(parsed.tools[0]?.results.map((result) => [result.rank, result.url])).toEqual([
+      [1, "https://first.example/audio"],
+      [2, "https://second.example/tts"],
+    ]);
+    expect(parsed.tools[0]?.results.every((result) => result.query === undefined)).toBe(true);
+  });
+
+  it("parses DeepSeek's model-visible Markdown source list when retained metadata is unavailable", () => {
+    const parsed = parseTurn([
+      { type: "tool_call", callId: "call-2", tool: "web_search", input: { queries: ["audio router"] } },
+      { type: "tool_result", callId: "call-2", status: "completed", result: "Sources:\n- [One](https://one.example) — First snippet\n- [Two](https://two.example) — Second snippet" },
+    ], "", "discovery");
+    expect(parsed.tools[0]?.results.map((result) => result.name)).toEqual(["One", "Two"]);
+    expect(parsed.tools[0]?.rawObservable).toBe(true);
+  });
+
+  it("does not call a failed DeepSeek search result complete", () => {
+    const parsed = parseTurn([
+      { type: "tool/call", data: { turn: 1, step: 1, callId: "call-3", name: "web_search", arguments: JSON.stringify({ queries: ["audio router"] }) } },
+      {
+        type: "tool/result",
+        surfaceOp: "append",
+        data: {
+          turn: 1,
+          step: 1,
+          message: { toolCallId: "call-3", isError: true, content: [{ type: "text", text: "Search failed." }] },
+          error: { name: "WebError", code: "WEB_PROVIDER_ERROR" },
+        },
+      },
+    ], "", "discovery");
+    expect(parsed.tools[0]).toMatchObject({ name: "web_search", rawObservable: false, results: [] });
   });
 });

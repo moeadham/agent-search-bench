@@ -34,6 +34,7 @@ program.command("init")
       try {
         output.agents.claude.model = await required("Claude model ID");
         output.agents.codex.model = await required("Codex model ID");
+        output.agents.deepseek.model = await required("DeepSeek model ID");
         output.agents.hermes.provider = await required("Hermes provider ID");
         output.agents.hermes.model = await required("Hermes model ID");
         output.agents.openclaw.model = await required("OpenClaw provider/model ID");

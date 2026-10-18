@@ -6,6 +6,7 @@ docker build -t "$image" .
 docker run --rm --entrypoint sh "$image" -c '
   claude --version
   codex --version
+  dsh --version
   openclaw --version
   hermes --version
 '

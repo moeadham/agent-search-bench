@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { JUDGE_INPUT_LIMIT, type AgentId } from "./constants.js";
-import { canonicalDomain, canonicalKey } from "./evidence.js";
+import { canonicalDomain, canonicalKey, toolQueries } from "./evidence.js";
 import { answerCitations, isSearchTool, observedSearches, openedPages, primaryRecommendation } from "./report-evidence.js";
 import { resolveSecrets } from "./secrets.js";
 import type { AnswerCandidate, HarnessInsight, JudgeConfig, JudgeResult, TrialResult, TurnEvidence } from "./types.js";
@@ -205,7 +205,7 @@ function insightPrompt(query: string, trials: TrialResult[], exactQueries: strin
     trial: trial.repetition,
     recommendation: primaryRecommendation(trial)?.name ?? null,
     searches: observedSearches(trial.discovery.tools).map((search) => ({
-      query: search.query ?? null,
+      queries: toolQueries(search),
       resultsObservable: search.rawObservable,
       results: search.results.slice(0, 10).map((result) => ({
         rank: result.rank,
@@ -241,7 +241,7 @@ async function analyzeHarness(input: {
   trials: TrialResult[];
   apiKey: string | undefined;
 }): Promise<HarnessInsight> {
-  const exactQueries = [...new Set(input.trials.flatMap((trial) => observedSearches(trial.discovery.tools).flatMap((search) => search.query ? [search.query] : [])))];
+  const exactQueries = [...new Set(input.trials.flatMap((trial) => observedSearches(trial.discovery.tools).flatMap(toolQueries)))];
   if (!exactQueries.length) return { agent: input.agent, status: "skipped", error: "No observed search queries were available", attempts: 0 };
   if (!input.apiKey) return { agent: input.agent, status: "skipped", error: "Analysis credential unavailable", attempts: 0 };
   const user = insightPrompt(input.query, input.trials, exactQueries);

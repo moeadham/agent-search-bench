@@ -6,6 +6,7 @@
   "agents": {
     "claude": { "enabled": false, "command": "claude", "model": "disabled", "credentialEnv": ["ANTHROPIC_API_KEY"] },
     "codex": { "enabled": false, "command": "codex", "model": "disabled", "credentialEnv": ["CODEX_API_KEY"] },
+    "deepseek": { "enabled": false, "command": "dsh", "model": "disabled", "credentialEnv": ["DEEPSEEK_API_KEY"] },
     "hermes": {
       "enabled": true,
       "command": "hermes",

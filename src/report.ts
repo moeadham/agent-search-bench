@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { parseTurn } from "./evidence.js";
+import { parseTurn, toolQueries } from "./evidence.js";
 import { buildReport } from "./metrics.js";
 import { observedSearches, primaryRecommendation } from "./report-evidence.js";
 import type { BenchmarkReport, HarnessInsight, RunManifest, ToolEvidence, TrialEvidenceJourney, TrialResult } from "./types.js";
@@ -117,7 +117,9 @@ function basisLabel(value: TrialEvidenceJourney["basis"]): string {
 }
 
 function agentName(value: string): string {
-  return value === "openclaw" ? "OpenClaw" : value.charAt(0).toUpperCase() + value.slice(1);
+  if (value === "openclaw") return "OpenClaw";
+  if (value === "deepseek") return "DeepSeek";
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function list(items: string[], empty: string, render: (item: string) => string = escapeHtml): string {
@@ -143,7 +145,7 @@ function strongestJourney(journeys: TrialEvidenceJourney[]): TrialEvidenceJourne
 function harnessNarrative(report: BenchmarkReport, agent: string): string {
   const trials = report.trials.filter((trial) => trial.agent === agent);
   const journeys = report.journeys.filter((journey) => journey.agent === agent);
-  const queries = [...new Set(trials.flatMap((trial) => observedSearches(trial.discovery.tools).flatMap((search) => search.query ? [search.query] : [])))];
+  const queries = [...new Set(trials.flatMap((trial) => observedSearches(trial.discovery.tools).flatMap(toolQueries)))];
   const dominant = dominantRecommendation(trials);
   const relevantJourneys = dominant ? journeys.filter((journey) => journey.recommendation === dominant.name) : journeys;
   const strongest = strongestJourney(relevantJourneys);
@@ -250,8 +252,13 @@ function resultList(search: ToolEvidence): string {
 }
 
 function searchDetails(search: ToolEvidence, index: number): string {
-  return `<details class="search"><summary>Search ${index + 1}: ${escapeHtml(search.query ?? "Query not exposed")} <span>${search.rawObservable ? `${search.results.length} results` : "results unknown"}</span></summary>
-    <p><strong>Exact observed query:</strong> ${escapeHtml(search.query ?? "Not exposed")}</p>${resultList(search)}
+  const queries = toolQueries(search);
+  const querySummary = queries.length ? `${queries[0]}${queries.length > 1 ? ` + ${queries.length - 1} more` : ""}` : "Query not exposed";
+  const queryDetail = queries.length <= 1
+    ? `<p><strong>Exact observed query:</strong> ${escapeHtml(queries[0] ?? "Not exposed")}</p>`
+    : `<p><strong>Exact observed queries:</strong></p>${list(queries, "No search query observed.")}`;
+  return `<details class="search"><summary>Search ${index + 1}: ${escapeHtml(querySummary)} <span>${search.rawObservable ? `${search.results.length} results` : "results unknown"}</span></summary>
+    ${queryDetail}${resultList(search)}
     ${search.responseText ? `<details><summary>Search synthesis shown to the agent</summary><pre>${escapeHtml(search.responseText)}</pre></details>` : ""}
   </details>`;
 }
@@ -263,7 +270,7 @@ function trialDetails(trial: TrialResult, journey: TrialEvidenceJourney | undefi
   return `<details class="trial"><summary>Trial ${trial.repetition}: ${escapeHtml(selected(trial))} <span class="pill ${trial.success ? "success" : "failure"}">${trial.success ? "successful" : "failed"}</span></summary>
     ${trial.discoveryPrompt ? `<h4>Prompt sent to this harness</h4><pre>${escapeHtml(trial.discoveryPrompt)}</pre>` : ""}
     <ol class="journey" aria-label="Observed evidence journey">
-      <li><strong>Search queries</strong>${list(searches.flatMap((search) => search.query ? [search.query] : []), "No search query observed.")}</li>
+      <li><strong>Search queries</strong>${list(searches.flatMap(toolQueries), "No search query observed.")}</li>
       <li><strong>Returned results</strong><p>${escapeHtml(payloadLabel(searches))}</p></li>
       <li><strong>Pages opened</strong>${list(opened, "No opened page URL was observed.", (url) => link(url))}</li>
       <li><strong>Answer citations</strong>${list(citations, "No answer URL was observed.", (url) => link(url))}</li>

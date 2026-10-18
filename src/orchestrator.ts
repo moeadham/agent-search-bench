@@ -33,6 +33,35 @@ function hermesRuntimeDirectory(): string | undefined {
 async function prepareAgentState(agent: AgentId, config: BenchmarkConfig["agents"][AgentId], homeDir: string): Promise<void> {
   if (agent === "codex") await mkdir(join(homeDir, ".codex"), { recursive: true, mode: 0o700 });
   if (agent === "claude") await mkdir(join(homeDir, ".claude"), { recursive: true, mode: 0o700 });
+  if (agent === "deepseek") {
+    const stateDir = join(homeDir, ".dsh");
+    await mkdir(stateDir, { recursive: true, mode: 0o700 });
+    await privateWrite(join(stateDir, "cordis.patch.yml"), `${JSON.stringify([
+      {
+        id: "agent-default-model",
+        config: { provider: "deepseek-official", model: config.model },
+      },
+      {
+        id: "web",
+        config: {
+          searchProvider: config.searchProvider ?? "deepseek-search-api",
+          fetchProvider: "deepseek-fetch-api",
+        },
+      },
+      {
+        id: "web-deepseek-api",
+        config: { apiKeyEnv: config.credentialEnv[0], count: 10, sendOriginalQuestion: true },
+      },
+      {
+        id: "tool-web",
+        config: { searchMaxResults: 10 },
+      },
+      {
+        id: "session-persistence-jsonl",
+        config: { compression: "none" },
+      },
+    ], null, 2)}\n`);
+  }
   if (agent === "hermes") {
     const stateDir = join(homeDir, ".hermes");
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
@@ -147,6 +176,58 @@ async function enrichOpenClawTrajectory(input: {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function jsonlFiles(root: string): Promise<string[]> {
+  const files: string[] = [];
+  const visit = async (directory: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(path);
+    }
+  };
+  await visit(root);
+  return files;
+}
+
+function projectedTurn(process: ProcessResult): number | undefined {
+  return process.events.flatMap((event) => isRecord(event) ? [event] : [])
+    .filter((event) => event.type === "status" && event.phase === "turn_start" && typeof event.turn === "number")
+    .map((event) => event.turn as number)
+    .at(-1);
+}
+
+async function enrichDeepSeekSession(input: {
+  process: ProcessResult;
+  sessionId: string;
+  homeDir: string;
+}): Promise<void> {
+  const turn = projectedTurn(input.process);
+  if (turn === undefined) return;
+  try {
+    const sessionRoot = join(input.homeDir, ".dsh", "sessions");
+    for (const path of await jsonlFiles(sessionRoot)) {
+      const parsed = (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean).flatMap((line) => {
+        try { return [JSON.parse(line) as unknown]; }
+        catch { return []; }
+      });
+      const header = parsed.find((event) => isRecord(event) && event.type === "session");
+      if (!isRecord(header) || header.id !== input.sessionId) continue;
+      for (const event of parsed) {
+        if (!isRecord(event) || (event.type !== "tool/call" && event.type !== "tool/result") || !isRecord(event.data) || event.data.turn !== turn) continue;
+        input.process.events.push(event);
+      }
+      return;
+    }
+    throw new Error(`session ${input.sessionId} was not found`);
+  } catch (error) {
+    input.process.stderr += `\nDeepSeek session evidence unavailable: ${error instanceof Error ? error.message : String(error)}\n`;
+  }
+}
+
 async function runTrial(input: {
   agent: AgentId;
   repetition: number;
@@ -237,6 +318,9 @@ async function runTrial(input: {
         timeoutMs: turnTimeoutMs,
       });
     }
+    if (input.agent === "deepseek" && initialDiscovery.sessionId && discoveryProcess.exitCode === 0 && !discoveryProcess.timedOut) {
+      await enrichDeepSeekSession({ process: discoveryProcess, sessionId: initialDiscovery.sessionId, homeDir });
+    }
     const discovery = parseTurn(discoveryProcess.events, discoveryProcess.stdout, "discovery");
     await saveTurn(trialDirectory, "discovery", discoveryProcess, discovery, resolved.values);
     if (discoveryProcess.exitCode !== 0 || discoveryProcess.timedOut || !discovery.finalText) {
@@ -305,6 +389,9 @@ async function runTrial(input: {
       };
       await privateWrite(join(trialDirectory, "trial.json"), `${JSON.stringify(redactValue(trial, resolved.values), null, 2)}\n`);
       return trial;
+    }
+    if (input.agent === "deepseek" && interviewProcess.exitCode === 0 && !interviewProcess.timedOut) {
+      await enrichDeepSeekSession({ process: interviewProcess, sessionId, homeDir });
     }
     const interview = parseTurn(interviewProcess.events, interviewProcess.stdout, "interview");
     await saveTurn(trialDirectory, "interview", interviewProcess, interview, resolved.values);

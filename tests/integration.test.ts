@@ -91,11 +91,12 @@ if (audit) {
     const config: BenchmarkConfig = {
       outputDir: join(root, "runs"),
       repetitions: 2,
-      concurrency: 10,
+      concurrency: 12,
       timeoutMs: 5_000,
       agents: {
         claude: { ...agent, discoveryPromptSuffix: "Research the live web before recommending one." },
         codex: { ...agent },
+        deepseek: { ...agent, searchProvider: "deepseek-search-api" },
         hermes: { ...agent, provider: "fake", timeoutMs: 1_000 },
         openclaw: { ...agent },
         cursor: { ...agent },
@@ -105,10 +106,10 @@ if (audit) {
     };
     const run = await runBenchmark({ config, configRaw: JSON.stringify(config), query: "Find an audio model aggregator" });
     const report = JSON.parse(await readFile(join(run, "report.json"), "utf8")) as BenchmarkReport;
-    expect(report.scheduledTrials).toBe(10);
-    expect(report.successfulTrials).toBe(10);
+    expect(report.scheduledTrials).toBe(12);
+    expect(report.successfulTrials).toBe(12);
     const lifecycleLines = (await readFile(lifecycle, "utf8")).trim().split("\n");
-    expect(lifecycleLines.slice(0, 10)).toEqual(Array(10).fill("discovery-start"));
+    expect(lifecycleLines.slice(0, 12)).toEqual(Array(12).fill("discovery-start"));
     expect(report.entities[0]?.key).toBe("audiohub.example");
     expect(report.entities[0]?.mrr).toBe(1);
     expect(report.trials.some((trial) => trial.judge.attempts === 2)).toBe(true);
@@ -129,7 +130,7 @@ if (audit) {
     expect(html).toContain("Agent-reported; not hidden reasoning");
     expect(html).not.toContain("<table>");
     const regenerated = JSON.parse(await readFile(join(run, "report.json"), "utf8")) as BenchmarkReport;
-    expect(regenerated.insights).toHaveLength(5);
+    expect(regenerated.insights).toHaveLength(6);
     expect(regenerated.insights.every((insight) => insight.status === "ok")).toBe(true);
     expect(regenerated.insights.some((insight) => insight.attempts === 2)).toBe(true);
   });

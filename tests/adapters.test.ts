@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { codexAdapter } from "../src/adapters/codex.js";
 import { claudeAdapter } from "../src/adapters/claude.js";
 import { cursorAdapter } from "../src/adapters/cursor.js";
+import { deepseekAdapter } from "../src/adapters/deepseek.js";
 import { hermesAdapter } from "../src/adapters/hermes.js";
 import { openclawAdapter } from "../src/adapters/openclaw.js";
 import type { AdapterContext } from "../src/adapters/base.js";
@@ -32,6 +33,17 @@ describe("agent command contracts", () => {
     expect(interview.args).toContain("--message");
     expect(interview.stdin).toBeUndefined();
     expect(interview.env?.OPENCLAW_STATE_DIR).toBe("/tmp/private-home/.openclaw");
+  });
+
+  it("runs DeepSeek headless with JSON events and resumes the exact persisted session", () => {
+    const ctx = context("dsh");
+    const discovery = deepseekAdapter.discovery(ctx, "verbatim query\n");
+    expect(discovery.args).toEqual(["headless", "--json"]);
+    expect(discovery.stdin).toBe("verbatim query\n");
+    expect(discovery.env?.DSH_HOME).toBe("/tmp/private-home/.dsh");
+    const interview = deepseekAdapter.interview(ctx, "session-deepseek", "audit");
+    expect(interview.args).toEqual(["headless", "--json", "--session-id", "session-deepseek"]);
+    expect(interview.stdin).toBe("audit");
   });
 
   it.each([

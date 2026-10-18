@@ -1,6 +1,6 @@
 # Agent Search Bench
 
-A TypeScript CLI for comparing agentic web discovery. It runs a base prompt through enabled agent harnesses, interviews each agent in the same session, preserves observable tool evidence, and reports the returned search-result lists and the agent's recommendation. The current deployment enables Claude Code, Codex, Hermes, and OpenClaw; Cursor remains implemented but disabled and is not installed in the image.
+A TypeScript CLI for comparing agentic web discovery. It runs a base prompt through enabled agent harnesses, interviews each agent in the same session, preserves observable tool evidence, and reports the returned search-result lists and the agent's recommendation. The current deployment enables Claude Code, Codex, DeepSeek Harness, Hermes, and OpenClaw; Cursor remains implemented but disabled and is not installed in the image.
 
 The goal is to help product and website owners understand how agents discover and select products for a particular search term—and, ultimately, what improves their visibility. The primary view is therefore organized by agent harness rather than as a generic website leaderboard.
 
@@ -38,6 +38,7 @@ Edit `agent-search-bench.config.json` and replace every `CHOOSE_*` value with an
 ```bash
 export ANTHROPIC_API_KEY="..."
 export CODEX_API_KEY="..."
+export DEEPSEEK_API_KEY="..."
 export HERMES_PROVIDER_API_KEY="..."
 export OPENCLAW_PROVIDER_API_KEY="..."
 export FIRECRAWL_API_KEY="..."
@@ -50,7 +51,7 @@ export ANTHROPIC_API_KEY_FILE=/run/secrets/anthropic
 
 The placeholder Hermes/OpenClaw credential names are intentionally configurable. Change `credentialEnv` to the actual variable used by the selected provider, such as `OPENROUTER_API_KEY`. The report-analysis model extracts the primary recommendation and proposes the captured-evidence-only content opportunity; it must expose an OpenAI-compatible `/chat/completions` endpoint with JSON-schema structured output.
 
-Model and search providers are configured independently. The checked-in deployment pins Hermes search to its documented Firecrawl default (`FIRECRAWL_API_KEY`) and OpenClaw search to the first provider in its auto-detection order, Brave (`BRAVE_API_KEY`). OpenRouter remains the model provider for both agents and for the structured report-analysis step.
+Model and search providers are configured independently. The checked-in deployment pins DeepSeek Harness to DeepSeek's direct `deepseek-search-api` and `deepseek-fetch-api` providers using `DEEPSEEK_API_KEY`, Hermes search to its documented Firecrawl default (`FIRECRAWL_API_KEY`), and OpenClaw search to the first provider in its auto-detection order, Brave (`BRAVE_API_KEY`). OpenRouter remains the model provider for Hermes, OpenClaw, and the structured report-analysis step.
 
 An agent may optionally define `discoveryPromptSuffix`. The suffix is appended only for that harness and the exact resulting prompt is retained in every trial and shown in the report. The checked-in deployment adds `Research the live web before recommending one.` for Claude because live testing showed that the unmodified discovery prompt did not reliably trigger Claude's search tool. Other harnesses receive the base query verbatim.
 
@@ -121,7 +122,7 @@ Detailed trial evidence uses native expandable sections and requires no JavaScri
 
 If a harness exposes the search call but not its result payload, membership and rank are reported as `Unknown`; the framework does not substitute the agent's self-report. A recommendation is marked absent only when every relevant result payload is observable. The model-assisted extraction step identifies the recommendation in free-form prose; it does not decide observed membership or rank.
 
-Claude's stream exposes ordered native WebSearch results plus the search-tool synthesis shown to the model, and the framework preserves both. Hermes and OpenClaw expose their native result payloads. Codex currently exposes its exact hosted-search calls and queries through `codex exec --json`, but not the complete ordered result payload, so Codex result-list membership remains `Unknown` even when the audit describes candidates.
+Claude's stream exposes ordered native WebSearch results plus the search-tool synthesis shown to the model, and the framework preserves both. DeepSeek Harness retains exact `web_search` arguments and the ordered, model-visible Search API source metadata in its isolated Session log; the framework copies only the current turn's tool events before deleting that temporary home. Hermes and OpenClaw expose their native result payloads. Codex currently exposes its exact hosted-search calls and queries through `codex exec --json`, but not the complete ordered result payload, so Codex result-list membership remains `Unknown` even when the audit describes candidates.
 
 ## Container
 
@@ -131,6 +132,7 @@ Build-time version arguments default to `latest`. Set them to explicit package v
 docker build \
   --build-arg CLAUDE_VERSION=latest \
   --build-arg CODEX_VERSION=latest \
+  --build-arg DEEPSEEK_VERSION=next \
   --build-arg OPENCLAW_VERSION=latest \
   -t agent-search-bench .
 
@@ -138,7 +140,7 @@ docker compose run --rm asbench doctor
 docker compose run --rm asbench run --query "Find me a provider that aggregates audio models"
 ```
 
-The Compose service is non-root, read-only except for `/tmp`, and mounts only configuration and output—not a source repository or Docker socket. Every run records the actual CLI `--version` output.
+The Compose service is non-root, read-only except for `/tmp`, and mounts only configuration and output—not a source repository or Docker socket. Every run records the actual CLI `--version` output. `DEEPSEEK_VERSION` currently defaults to the npm `next` tag because that release line contains DeepSeek Harness' new direct Search/Fetch API provider; pin it to an explicit compatible version for reproducible builds.
 
 ## Cloudflare Containers demo
 
@@ -151,6 +153,7 @@ pnpm exec wrangler r2 bucket create agent-search-bench-demo-runs
 
 pnpm exec wrangler secret put ANTHROPIC_API_KEY
 pnpm exec wrangler secret put CODEX_API_KEY
+pnpm exec wrangler secret put DEEPSEEK_API_KEY
 pnpm exec wrangler secret put OPENROUTER_API_KEY
 pnpm exec wrangler secret put FIRECRAWL_API_KEY
 pnpm exec wrangler secret put BRAVE_API_KEY

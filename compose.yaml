@@ -5,6 +5,7 @@ services:
       args:
         CLAUDE_VERSION: ${CLAUDE_VERSION:-latest}
         CODEX_VERSION: ${CODEX_VERSION:-latest}
+        DEEPSEEK_VERSION: ${DEEPSEEK_VERSION:-next}
         OPENCLAW_VERSION: ${OPENCLAW_VERSION:-latest}
         OPENCLAW_BRAVE_PLUGIN_VERSION: ${OPENCLAW_BRAVE_PLUGIN_VERSION:-latest}
         HERMES_INSTALL_URL: ${HERMES_INSTALL_URL:-https://hermes-agent.nousresearch.com/install.sh}
@@ -23,6 +24,7 @@ services:
       ASBENCH_CONFIG: /config/agent-search-bench.config.json
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CODEX_API_KEY: ${CODEX_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}

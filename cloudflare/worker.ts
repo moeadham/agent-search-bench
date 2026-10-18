@@ -6,6 +6,7 @@ interface BenchEnv {
   DEMO_TOKEN: string;
   ANTHROPIC_API_KEY: string;
   CODEX_API_KEY: string;
+  DEEPSEEK_API_KEY: string;
   OPENROUTER_API_KEY: string;
   FIRECRAWL_API_KEY: string;
   BRAVE_API_KEY: string;
@@ -526,6 +527,7 @@ function containerSecrets(env: BenchEnv): Record<string, string> {
   return {
     ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
     CODEX_API_KEY: env.CODEX_API_KEY,
+    DEEPSEEK_API_KEY: env.DEEPSEEK_API_KEY,
     OPENAI_API_KEY: env.CODEX_API_KEY,
     OPENROUTER_API_KEY: env.OPENROUTER_API_KEY,
     HERMES_PROVIDER_API_KEY: env.OPENROUTER_API_KEY,

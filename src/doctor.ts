@@ -59,6 +59,17 @@ async function liveCheck(id: AgentId, config: BenchmarkConfig): Promise<DoctorCh
     const agent = config.agents[id];
     if (id === "codex") await mkdir(join(homeDir, ".codex"), { recursive: true });
     if (id === "claude") await mkdir(join(homeDir, ".claude"), { recursive: true });
+    if (id === "deepseek") {
+      const stateDir = join(homeDir, ".dsh");
+      await mkdir(stateDir, { recursive: true });
+      await writeFile(join(stateDir, "cordis.patch.yml"), `${JSON.stringify([
+        { id: "agent-default-model", config: { provider: "deepseek-official", model: agent.model } },
+        { id: "web", config: { searchProvider: agent.searchProvider ?? "deepseek-search-api", fetchProvider: "deepseek-fetch-api" } },
+        { id: "web-deepseek-api", config: { apiKeyEnv: agent.credentialEnv[0], count: 10, sendOriginalQuestion: true } },
+        { id: "tool-web", config: { searchMaxResults: 10 } },
+        { id: "session-persistence-jsonl", config: { compression: "none" } },
+      ], null, 2)}\n`, { mode: 0o600 });
+    }
     if (id === "hermes") {
       const stateDir = join(homeDir, ".hermes");
       await mkdir(stateDir, { recursive: true });

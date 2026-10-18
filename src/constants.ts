@@ -11,6 +11,7 @@ export const JUDGE_INPUT_LIMIT = 100_000;
 export const AGENT_IDS = [
   "claude",
   "codex",
+  "deepseek",
   "hermes",
   "openclaw",
   "cursor",

@@ -81,6 +81,27 @@ function resultRows(value: unknown, query?: string, tool?: string): SearchResult
         } catch { /* Ignore an incomplete pair at the truncation boundary. */ }
       }
       if (visible.length) return [...new Map(visible.map((row) => [row.url, row])).values()];
+
+      // DeepSeek Harness renders the exact model-visible search sources as a
+      // Markdown list in its headless event stream. Its retained Session log
+      // also carries structured source metadata; this is the lossless fallback
+      // when only the projected stream is available.
+      for (const line of value.split(/\r?\n/)) {
+        const match = line.match(/^- \[(.*)\]\((https?:\/\/.*?)\)(?:\s+—\s+(.*))?$/u);
+        if (!match?.[1] || !match[2]) continue;
+        const domain = canonicalDomain(match[2]);
+        if (!domain) continue;
+        visible.push({
+          name: match[1],
+          url: match[2],
+          domain,
+          rank: visible.length + 1,
+          ...(query ? { query } : {}),
+          ...(tool ? { tool } : {}),
+          ...(match[3] ? { snippet: cleanExternalText(match[3]) } : {}),
+        });
+      }
+      if (visible.length) return [...new Map(visible.map((row) => [row.url, row])).values()];
     }
   }
   const rows: SearchResultEvidence[] = [];
@@ -120,8 +141,20 @@ function queryFrom(value: unknown): string | undefined {
   for (const record of records(value)) {
     const query = firstString(record, ["query", "search_query", "searchQuery"]);
     if (query) return query;
+    if (Array.isArray(record.queries)) {
+      const first = record.queries.find((item): item is string => typeof item === "string" && Boolean(item.trim()));
+      if (first) return first.trim();
+    }
   }
   return undefined;
+}
+
+export function toolQueries(tool: ToolEvidence): string[] {
+  if (isRecord(tool.input) && Array.isArray(tool.input.queries)) {
+    const queries = tool.input.queries.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim());
+    if (queries.length) return [...new Set(queries)];
+  }
+  return tool.query ? [tool.query] : [];
 }
 
 function appendTool(tools: ToolEvidence[], tool: ToolEvidence): void {
@@ -264,6 +297,50 @@ export function parseTurn(events: unknown[], stdout: string, phase: "discovery" 
       }
     }
 
+    // DeepSeek Harness' retained Session log contains the uncapped tool call
+    // arguments and structured presentation metadata for web results. These
+    // events are appended by the orchestrator after the headless process exits.
+    if (isRecord(event) && event.type === "tool/call" && isRecord(event.data)) {
+      const data = event.data;
+      const name = firstString(data, ["name"]);
+      const id = firstString(data, ["callId", "call_id"]);
+      let input: unknown = data.arguments;
+      if (typeof input === "string") {
+        try { input = input ? JSON.parse(input) : {}; }
+        catch { /* Preserve malformed model output verbatim. */ }
+      }
+      if (name) {
+        const query = queryFrom(input);
+        appendTool(tools, { name, phase, ...(id ? { callId: id } : {}), ...(query ? { query } : {}), input, results: [], rawObservable: false });
+      }
+      continue;
+    }
+
+    if (isRecord(event) && event.type === "tool/result" && isRecord(event.data) && isRecord(event.data.message)) {
+      const data = event.data;
+      const message = data.message as Record<string, unknown>;
+      const id = firstString(message, ["toolCallId", "tool_call_id", "callId", "call_id"]);
+      const matchingCall = id ? tools.find((tool) => tool.callId === id) : undefined;
+      const name = matchingCall?.name ?? "tool";
+      const rendered = textValue(message.content) ?? "";
+      const meta = data.meta;
+      const query = matchingCall?.query ?? queryFrom(meta);
+      const exactQueries = matchingCall ? toolQueries(matchingCall) : [];
+      const resultQuery = exactQueries.length === 1 ? exactQueries[0] : undefined;
+      const responseText = isRecord(meta) ? firstString(meta, ["answer", "content"]) : undefined;
+      appendTool(tools, {
+        name,
+        phase,
+        ...(id ? { callId: id } : {}),
+        ...(query ? { query } : {}),
+        output: { rendered, ...(meta !== undefined ? { meta } : {}) },
+        ...(responseText ? { responseText } : {}),
+        results: resultRows(meta ?? rendered, resultQuery, name),
+        rawObservable: data.error === undefined && message.isError !== true,
+      });
+      continue;
+    }
+
     for (const record of all) {
       const type = firstString(record, ["type", "event", "role"]) ?? "";
       const name = toolName(record);
@@ -280,7 +357,7 @@ export function parseTurn(events: unknown[], stdout: string, phase: "discovery" 
         if (existing) {
           const output = record.output ?? record.result ?? record.content ?? record.details ?? record;
           existing.output = output;
-          existing.rawObservable = true;
+          existing.rawObservable = record.truncated !== true;
           const parsed = resultRows(record.details ?? output, existing.query, existing.name);
           if (parsed.length) existing.results = parsed;
         }

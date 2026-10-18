@@ -16,6 +16,15 @@
       "model": "CHOOSE_CODEX_MODEL",
       "credentialEnv": ["CODEX_API_KEY"]
     },
+    "deepseek": {
+      "enabled": true,
+      "command": "dsh",
+      "model": "CHOOSE_DEEPSEEK_MODEL",
+      "provider": "deepseek-official",
+      "credentialEnv": ["DEEPSEEK_API_KEY"],
+      "searchProvider": "deepseek-search-api",
+      "searchBackend": "DeepSeek Search API"
+    },
     "hermes": {
       "enabled": true,
       "command": "hermes",

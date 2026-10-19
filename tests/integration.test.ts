@@ -3,7 +3,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { runBenchmark } from "../src/orchestrator.js";
+import { runBenchmark, runDiscoveryBenchmark } from "../src/orchestrator.js";
 import { generateReport } from "../src/report.js";
 import type { BenchmarkConfig, BenchmarkReport } from "../src/types.js";
 
@@ -42,10 +42,11 @@ if (!audit) {
 }
 console.log(JSON.stringify({type:"system",session_id:"11111111-1111-4111-8111-111111111111",model:"fake-model",provider:"fake"}));
 if (audit) {
-  console.log(JSON.stringify({type:"assistant",text:"I searched for audio aggregators and selected AudioHub from the candidates already observed."}));
+  console.log(JSON.stringify({type:"assistant",text:all.includes("OpenRouter") ? "I recognized OpenRouter as an LLM service and confirmed it in the observed results." : "I searched for audio aggregators and selected AudioHub from the candidates already observed."}));
 } else {
-  console.log(JSON.stringify({type:"tool_result",tool_name:"web_search",query:"audio aggregators",results:[{title:"AudioHub",url:"https://audiohub.example",position:1},{title:"Other",url:"https://other.example",position:2}]}));
-  console.log(JSON.stringify({type:"assistant",text:"I recommend [AudioHub](https://audiohub.example)."}));
+  const serviceDiscovery = all.includes("I am thinking of using OpenRouter");
+  console.log(JSON.stringify({type:"tool_result",tool_name:"web_search",query:serviceDiscovery ? "OpenRouter" : "audio aggregators",results:serviceDiscovery ? [{title:"OpenRouter",url:"https://openrouter.ai",position:1},{title:"Other",url:"https://other.example",position:2}] : [{title:"AudioHub",url:"https://audiohub.example",position:1},{title:"Other",url:"https://other.example",position:2}]}));
+  console.log(JSON.stringify({type:"assistant",text:serviceDiscovery ? "OpenRouter is an LLM routing service with access to multiple models." : "I recommend [AudioHub](https://audiohub.example)."}));
   appendFileSync(${JSON.stringify(lifecycle)}, "discovery-end\\n");
 }
 `);
@@ -69,6 +70,14 @@ if (audit) {
           ],
           evidenceToInclude: ["A current model table", "Measured streaming latency"],
           rationale: "The observed query asks for an audio-model aggregator.",
+        }) } }] }));
+        return;
+      }
+      if (body.includes("agent_service_recognition")) {
+        response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+          status: "recognized",
+          confidence: 0.95,
+          explanation: "The answer identifies OpenRouter as a specific multi-model LLM routing service.",
         }) } }] }));
         return;
       }
@@ -133,5 +142,30 @@ if (audit) {
     expect(regenerated.insights).toHaveLength(6);
     expect(regenerated.insights.every((insight) => insight.status === "ok")).toBe(true);
     expect(regenerated.insights.some((insight) => insight.attempts === 2)).toBe(true);
+
+    const discoveryRun = await runDiscoveryBenchmark({
+      config,
+      configRaw: JSON.stringify(config),
+      subject: { name: "OpenRouter", description: "LLM service" },
+    });
+    const discoveryReport = JSON.parse(await readFile(join(discoveryRun, "report.json"), "utf8")) as BenchmarkReport;
+    expect(discoveryReport.mode).toBe("discovery");
+    expect(discoveryReport.subject).toEqual({ name: "OpenRouter", description: "LLM service" });
+    expect(discoveryReport.scheduledTrials).toBe(24);
+    expect(discoveryReport.discovery).toHaveLength(6);
+    expect(discoveryReport.discovery?.every((summary) => summary.variants.every((variant) => variant.recognized === 2 && variant.searchFound === 2))).toBe(true);
+    expect(discoveryReport.trials.some((trial) => trial.discoveryPrompt === "I am thinking of using OpenRouter for my LLM service. What do you think?")).toBe(true);
+    expect(discoveryReport.trials.some((trial) => trial.discoveryPrompt === "I am thinking of using OpenRouter. What do you think?")).toBe(true);
+    expect(discoveryReport.trials.every((trial) => !trial.discoveryPrompt?.includes("Research the live web"))).toBe(true);
+    expect(await readFile(join(discoveryRun, "trials", "codex", "name_only", "1", "interview.txt"), "utf8")).toContain("recognized OpenRouter");
+    const discoveryHtml = await readFile(join(discoveryRun, "report.html"), "utf8");
+    expect(discoveryHtml).toContain("Do agents know OpenRouter?");
+    expect(discoveryHtml).toContain("Name + description");
+    expect(discoveryHtml).toContain("Name only");
+    expect(discoveryHtml).toContain("Exact name found in results");
+    expect(discoveryHtml).not.toContain("<table>");
+    await generateReport(discoveryRun);
+    const regeneratedDiscovery = JSON.parse(await readFile(join(discoveryRun, "report.json"), "utf8")) as BenchmarkReport;
+    expect(regeneratedDiscovery.discovery?.every((summary) => summary.variants.every((variant) => variant.searchFound === 2))).toBe(true);
   });
 });

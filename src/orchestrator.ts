@@ -5,14 +5,16 @@ import { basename, join, resolve } from "node:path";
 import pLimit from "p-limit";
 import { adapters } from "./adapters/index.js";
 import type { AdapterContext } from "./adapters/base.js";
-import { AGENT_IDS, INTERVIEW_PROMPT, INTERVIEW_PROMPT_VERSION, SCHEMA_VERSION, type AgentId } from "./constants.js";
+import { AGENT_IDS, DISCOVERY_INTERVIEW_PROMPT_VERSION, INTERVIEW_PROMPT, INTERVIEW_PROMPT_VERSION, SCHEMA_VERSION, discoveryInterviewPrompt, type AgentId } from "./constants.js";
+import { discoveryPrompts } from "./discovery.js";
+import { deepSeekStatePatch } from "./deepseek-state.js";
 import { extractAnswerCandidates, interviewDidResearch, parseTurn } from "./evidence.js";
-import { analyzeHarnesses, judgeTrial } from "./judge.js";
+import { analyzeHarnesses, judgeDiscoveryRecognition, judgeTrial } from "./judge.js";
 import { runProcess } from "./process.js";
 import { redactText, redactValue } from "./redact.js";
 import { generateReport } from "./report.js";
 import { resolveSecrets, safeBaseEnv } from "./secrets.js";
-import type { BenchmarkConfig, ProcessResult, RunManifest, TrialResult, TurnEvidence } from "./types.js";
+import type { BenchmarkConfig, BenchmarkMode, DiscoveryPromptVariant, DiscoverySubject, ProcessResult, RunManifest, TrialResult, TurnEvidence } from "./types.js";
 
 function slugify(value: string): string {
   const slug = value.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
@@ -36,31 +38,8 @@ async function prepareAgentState(agent: AgentId, config: BenchmarkConfig["agents
   if (agent === "deepseek") {
     const stateDir = join(homeDir, ".dsh");
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
-    await privateWrite(join(stateDir, "cordis.patch.yml"), `${JSON.stringify([
-      {
-        id: "agent-default-model",
-        config: { provider: "deepseek-official", model: config.model },
-      },
-      {
-        id: "web",
-        config: {
-          searchProvider: config.searchProvider ?? "deepseek-search-api",
-          fetchProvider: "deepseek-fetch-api",
-        },
-      },
-      {
-        id: "web-deepseek-api",
-        config: { apiKeyEnv: config.credentialEnv[0], count: 10, sendOriginalQuestion: true },
-      },
-      {
-        id: "tool-web",
-        config: { searchMaxResults: 10 },
-      },
-      {
-        id: "session-persistence-jsonl",
-        config: { compression: "none" },
-      },
-    ], null, 2)}\n`);
+    await mkdir(join(stateDir, "sessions"), { recursive: true, mode: 0o700 });
+    await privateWrite(join(stateDir, "cordis.patch.yml"), `${JSON.stringify(deepSeekStatePatch(config, stateDir), null, 2)}\n`);
   }
   if (agent === "hermes") {
     const stateDir = join(homeDir, ".hermes");
@@ -231,18 +210,25 @@ async function enrichDeepSeekSession(input: {
 async function runTrial(input: {
   agent: AgentId;
   repetition: number;
-  query: string;
+  prompt: string;
+  promptVariant?: DiscoveryPromptVariant;
+  mode: BenchmarkMode;
+  subject?: DiscoverySubject;
+  interviewPrompt: string;
+  applyAgentSuffix: boolean;
   config: BenchmarkConfig;
   runDirectory: string;
 }): Promise<TrialResult> {
   const started = Date.now();
   const agentConfig = input.config.agents[input.agent];
   const turnTimeoutMs = agentConfig.timeoutMs ?? input.config.timeoutMs;
-  const discoveryPrompt = agentConfig.discoveryPromptSuffix
-    ? `${input.query}\n\n${agentConfig.discoveryPromptSuffix}`
-    : input.query;
+  const discoveryPrompt = input.applyAgentSuffix && agentConfig.discoveryPromptSuffix
+    ? `${input.prompt}\n\n${agentConfig.discoveryPromptSuffix}`
+    : input.prompt;
   const adapter = adapters[input.agent];
-  const trialDirectory = join(input.runDirectory, "trials", input.agent, String(input.repetition));
+  const trialDirectory = input.promptVariant
+    ? join(input.runDirectory, "trials", input.agent, input.promptVariant, String(input.repetition))
+    : join(input.runDirectory, "trials", input.agent, String(input.repetition));
   await mkdir(trialDirectory, { recursive: true, mode: 0o700 });
   const isolatedRoot = await mkdtemp(join(tmpdir(), `asbench-${input.agent}-`));
   const homeDir = join(isolatedRoot, "home");
@@ -260,6 +246,7 @@ async function runTrial(input: {
   };
   const context: AdapterContext = { config: agentConfig, homeDir, workDir, sessionKey: randomUUID() };
   const emptyDiscovery: TurnEvidence = { finalText: "", usage: null, costUsd: null, tools: [] };
+  const variantFields = input.promptVariant ? { promptVariant: input.promptVariant } : {};
 
   try {
     if (resolved.missing.length) {
@@ -272,6 +259,7 @@ async function runTrial(input: {
         failureStage: "setup",
         error: `Missing credentials: ${resolved.missing.join(", ")}`,
         modelPin: agentConfig.model,
+        ...variantFields,
         discoveryPrompt,
         discovery: emptyDiscovery,
         interviewPerformedNewResearch: false,
@@ -296,6 +284,7 @@ async function runTrial(input: {
         failureStage: "discovery",
         error: error instanceof Error ? error.message : String(error),
         modelPin: agentConfig.model,
+        ...variantFields,
         discoveryPrompt,
         discovery: emptyDiscovery,
         interviewPerformedNewResearch: false,
@@ -333,6 +322,7 @@ async function runTrial(input: {
         failureStage: "discovery",
         error: processError("Discovery", discoveryProcess),
         modelPin: agentConfig.model,
+        ...variantFields,
         discoveryPrompt,
         discovery,
         interviewPerformedNewResearch: false,
@@ -355,6 +345,7 @@ async function runTrial(input: {
         failureStage: "resume",
         error: "Discovery stream did not expose a session identifier",
         modelPin: agentConfig.model,
+        ...variantFields,
         discoveryPrompt,
         discovery,
         interviewPerformedNewResearch: false,
@@ -368,7 +359,7 @@ async function runTrial(input: {
 
     let interviewProcess: ProcessResult;
     try {
-      interviewProcess = await runProcess(adapter.interview(context, sessionId, INTERVIEW_PROMPT), { cwd: workDir, timeoutMs: turnTimeoutMs, env });
+      interviewProcess = await runProcess(adapter.interview(context, sessionId, input.interviewPrompt), { cwd: workDir, timeoutMs: turnTimeoutMs, env });
     } catch (error) {
       const local = extractAnswerCandidates(discovery.finalText, input.config.aliases);
       const trial: TrialResult = {
@@ -380,6 +371,7 @@ async function runTrial(input: {
         failureStage: "interview",
         error: error instanceof Error ? error.message : String(error),
         modelPin: agentConfig.model,
+        ...variantFields,
         discoveryPrompt,
         discovery,
         interviewPerformedNewResearch: false,
@@ -397,7 +389,11 @@ async function runTrial(input: {
     await saveTurn(trialDirectory, "interview", interviewProcess, interview, resolved.values);
     const agentSuccess = interviewProcess.exitCode === 0 && !interviewProcess.timedOut && Boolean(interview.finalText);
     const localCandidates = extractAnswerCandidates(discovery.finalText, input.config.aliases);
-    const judge = agentSuccess ? await judgeTrial({ config: input.config.judge, query: discoveryPrompt, discovery, interview, aliases: input.config.aliases }) : { status: "skipped" as const, error: "Interview failed", attempts: 0 };
+    const judge = agentSuccess
+      ? input.mode === "discovery" && input.subject && input.promptVariant
+        ? await judgeDiscoveryRecognition({ config: input.config.judge, subject: input.subject, variant: input.promptVariant, discovery, interview })
+        : await judgeTrial({ config: input.config.judge, query: discoveryPrompt, discovery, interview, aliases: input.config.aliases })
+      : { status: "skipped" as const, error: "Interview failed", attempts: 0 };
     const candidates = judge.status === "ok" && judge.answerCandidates?.length ? judge.answerCandidates : localCandidates;
     const trial: TrialResult = {
       schemaVersion: SCHEMA_VERSION,
@@ -407,6 +403,7 @@ async function runTrial(input: {
       success: agentSuccess,
       ...(!agentSuccess ? { failureStage: "interview" as const, error: processError("Interview", interviewProcess) } : {}),
       modelPin: agentConfig.model,
+      ...variantFields,
       discoveryPrompt,
       discovery,
       interview,
@@ -456,31 +453,53 @@ export async function collectVersions(config: BenchmarkConfig): Promise<RunManif
   return result;
 }
 
-export async function runBenchmark(input: { config: BenchmarkConfig; configRaw: string; query: string }): Promise<string> {
+interface PromptPlan {
+  prompt: string;
+  promptVariant?: DiscoveryPromptVariant;
+}
+
+async function runBenchmarkPlan(input: {
+  config: BenchmarkConfig;
+  configRaw: string;
+  mode: BenchmarkMode;
+  query: string;
+  prompts: PromptPlan[];
+  subject?: DiscoverySubject;
+}): Promise<string> {
   const now = new Date();
   const stamp = now.toISOString().replace(/[:.]/g, "-");
-  const queryHash = createHash("sha256").update(input.query).digest("hex").slice(0, 8);
-  const runId = `${stamp}-${slugify(input.query)}-${queryHash}`;
+  const queryHash = createHash("sha256").update(JSON.stringify(input.prompts)).digest("hex").slice(0, 8);
+  const slugSource = input.mode === "discovery" && input.subject ? `discovery-${input.subject.name}` : input.query;
+  const runId = `${stamp}-${slugify(slugSource)}-${queryHash}`;
   const runDirectory = resolve(input.config.outputDir, runId);
   await mkdir(join(runDirectory, "trials"), { recursive: true, mode: 0o700 });
   const commit = await gitCommit();
   const manifest: RunManifest = {
     schemaVersion: SCHEMA_VERSION,
     runId,
+    mode: input.mode,
     query: input.query,
-    interviewPromptVersion: INTERVIEW_PROMPT_VERSION,
-    interviewPrompt: INTERVIEW_PROMPT,
+    ...(input.subject ? { subject: input.subject } : {}),
+    interviewPromptVersion: input.mode === "discovery" ? DISCOVERY_INTERVIEW_PROMPT_VERSION : INTERVIEW_PROMPT_VERSION,
+    interviewPrompt: input.mode === "discovery" && input.subject ? discoveryInterviewPrompt(input.subject.name) : INTERVIEW_PROMPT,
     startedAt: now.toISOString(),
     repetitions: input.config.repetitions,
     concurrency: input.config.concurrency,
     timeoutMs: input.config.timeoutMs,
     configHash: createHash("sha256").update(input.configRaw).digest("hex"),
     aliases: input.config.aliases,
-    agentPrompts: Object.fromEntries(AGENT_IDS
-      .filter((id) => input.config.agents[id].enabled)
-      .map((id) => [id, input.config.agents[id].discoveryPromptSuffix
-        ? `${input.query}\n\n${input.config.agents[id].discoveryPromptSuffix}`
-        : input.query])) as Partial<Record<AgentId, string>>,
+    ...(input.mode === "ranking" ? {
+      agentPrompts: Object.fromEntries(AGENT_IDS
+        .filter((id) => input.config.agents[id].enabled)
+        .map((id) => [id, input.config.agents[id].discoveryPromptSuffix
+          ? `${input.query}\n\n${input.config.agents[id].discoveryPromptSuffix}`
+          : input.query])) as Partial<Record<AgentId, string>>,
+    } : {
+      discoveryPrompts: input.prompts.map((prompt) => ({
+        variant: prompt.promptVariant as DiscoveryPromptVariant,
+        prompt: prompt.prompt,
+      })),
+    }),
     ...(commit ? { gitCommit: commit } : {}),
     imageIdentity: process.env.ASBENCH_IMAGE_ID ?? "local",
     agents: await collectVersions(input.config),
@@ -491,11 +510,16 @@ export async function runBenchmark(input: { config: BenchmarkConfig; configRaw: 
   const enabled = AGENT_IDS.filter((id) => input.config.agents[id].enabled);
   const limit = pLimit(input.config.concurrency);
   const scheduled = Array.from({ length: input.config.repetitions }, (_, index) => index + 1)
-    .flatMap((repetition) => enabled.map((agent) => ({ agent, repetition })));
-  const trials = await Promise.all(scheduled.map(({ agent, repetition }) => limit(() => runTrial({
+    .flatMap((repetition) => enabled.flatMap((agent) => input.prompts.map((prompt) => ({ agent, repetition, ...prompt }))));
+  const trials = await Promise.all(scheduled.map(({ agent, repetition, prompt, promptVariant }) => limit(() => runTrial({
       agent,
       repetition,
-      query: input.query,
+      prompt,
+      ...(promptVariant ? { promptVariant } : {}),
+      mode: input.mode,
+      ...(input.subject ? { subject: input.subject } : {}),
+      interviewPrompt: input.mode === "discovery" && input.subject ? discoveryInterviewPrompt(input.subject.name) : INTERVIEW_PROMPT,
+      applyAgentSuffix: input.mode === "ranking",
       config: input.config,
       runDirectory,
     }))));
@@ -508,11 +532,31 @@ export async function runBenchmark(input: { config: BenchmarkConfig; configRaw: 
     if (models.length) agent.resolvedModels = models;
     if (providers.length) agent.resolvedProviders = providers;
   }
-  const insights = await analyzeHarnesses({ config: input.config.judge, query: input.query, trials });
+  const insights = input.mode === "ranking"
+    ? await analyzeHarnesses({ config: input.config.judge, query: input.query, trials })
+    : [];
   manifest.completedAt = new Date().toISOString();
   await privateWrite(join(runDirectory, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   await generateReport(runDirectory, insights);
   return runDirectory;
+}
+
+export async function runBenchmark(input: { config: BenchmarkConfig; configRaw: string; query: string }): Promise<string> {
+  return runBenchmarkPlan({
+    ...input,
+    mode: "ranking",
+    prompts: [{ prompt: input.query }],
+  });
+}
+
+export async function runDiscoveryBenchmark(input: { config: BenchmarkConfig; configRaw: string; subject: DiscoverySubject }): Promise<string> {
+  const prompts: PromptPlan[] = discoveryPrompts(input.subject).map(({ variant, prompt }) => ({ promptVariant: variant, prompt }));
+  return runBenchmarkPlan({
+    ...input,
+    mode: "discovery",
+    query: `Discovery: ${input.subject.name} — ${input.subject.description}`,
+    prompts,
+  });
 }
 
 export async function readQuery(options: { query?: string; queryFile?: string }): Promise<string> {

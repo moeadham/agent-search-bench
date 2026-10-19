@@ -6,7 +6,7 @@ interface BenchEnv {
   DEMO_TOKEN: string;
   ANTHROPIC_API_KEY: string;
   CODEX_API_KEY: string;
-  DEEPSEEK_API_KEY: string;
+  DEEPSEEK_API_KEY?: string;
   OPENROUTER_API_KEY: string;
   FIRECRAWL_API_KEY: string;
   BRAVE_API_KEY: string;
@@ -29,8 +29,12 @@ interface RunResult {
   timeline: RunTimeline;
 }
 
+type BenchmarkRequest =
+  | { mode: "ranking"; query: string }
+  | { mode: "discovery"; name: string; description: string };
+
 interface ScheduledRun {
-  query: string;
+  benchmark: BenchmarkRequest;
   runName: string;
   timeline: RunTimeline;
 }
@@ -151,7 +155,7 @@ export class BenchmarkContainer extends Container<BenchEnv> {
   }
 
   async queueBenchmark(
-    query: string,
+    benchmark: BenchmarkRequest,
     runName: string,
     requestReceivedAt: string,
   ): Promise<void> {
@@ -167,14 +171,14 @@ export class BenchmarkContainer extends Container<BenchEnv> {
       durationsMs: timelineDurations(timeline),
     });
     await this.schedule<ScheduledRun>(1, "runScheduledBenchmark", {
-      query,
+      benchmark,
       runName,
       timeline,
     });
   }
 
   async runScheduledBenchmark(payload: ScheduledRun): Promise<void> {
-    const { query, runName, timeline } = payload;
+    const { benchmark, runName, timeline } = payload;
     markTimeline(runName, timeline, "scheduledCallbackStartedAt");
     let result: RunResult | undefined;
     let failure: unknown;
@@ -186,7 +190,7 @@ export class BenchmarkContainer extends Container<BenchEnv> {
         durationsMs: timelineDurations(timeline),
       });
       result = await this.runBenchmark(
-        query,
+        benchmark,
         runName,
         containerSecrets(this.env),
         timeline,
@@ -321,7 +325,7 @@ export class BenchmarkContainer extends Container<BenchEnv> {
   }
 
   async runBenchmark(
-    query: string,
+    benchmark: BenchmarkRequest,
     runName: string,
     secrets: Record<string, string>,
     timeline: RunTimeline,
@@ -401,8 +405,11 @@ export class BenchmarkContainer extends Container<BenchEnv> {
 
     const startedAt = Date.now();
     markTimeline(runName, timeline, "benchmarkStartedAt");
+    const command = benchmark.mode === "discovery"
+      ? ["node", "/app/dist/cli.js", "discovery", "--name", benchmark.name, "--description", benchmark.description]
+      : ["node", "/app/dist/cli.js", "run", "--query", benchmark.query];
     const result = await this.execute(
-      ["node", "/app/dist/cli.js", "run", "--query", query],
+      command,
       { env: runtimeEnvironment },
     );
     markTimeline(runName, timeline, "benchmarkCompletedAt");
@@ -512,14 +519,18 @@ function validQuery(query: string | null): query is string {
   return query !== null && query.trim().length > 0 && query.length <= maximumQueryLength;
 }
 
+function validDiscoveryField(value: string | null, maximumLength: number): value is string {
+  return value !== null && value.trim().length > 0 && value.length <= maximumLength;
+}
+
 async function queueRun(
-  query: string,
+  benchmark: BenchmarkRequest,
   requestReceivedAt: string,
   env: BenchEnv,
 ): Promise<string> {
   const runName = `run-${crypto.randomUUID()}`;
   const container = env.BENCHMARK_CONTAINER.getByName("benchmark-runner");
-  await container.queueBenchmark(query, runName, requestReceivedAt);
+  await container.queueBenchmark(benchmark, runName, requestReceivedAt);
   return runName;
 }
 
@@ -527,7 +538,7 @@ function containerSecrets(env: BenchEnv): Record<string, string> {
   return {
     ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
     CODEX_API_KEY: env.CODEX_API_KEY,
-    DEEPSEEK_API_KEY: env.DEEPSEEK_API_KEY,
+    ...(env.DEEPSEEK_API_KEY ? { DEEPSEEK_API_KEY: env.DEEPSEEK_API_KEY } : {}),
     OPENAI_API_KEY: env.CODEX_API_KEY,
     OPENROUTER_API_KEY: env.OPENROUTER_API_KEY,
     HERMES_PROVIDER_API_KEY: env.OPENROUTER_API_KEY,
@@ -550,19 +561,34 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/runs") {
-      const query = url.searchParams.get("query");
       const key = url.searchParams.get("key");
-      if (!validQuery(query)) {
-        return json({ error: "query must be a non-empty string up to 10,000 characters" }, 400);
+      const mode = url.searchParams.get("mode") ?? "ranking";
+      let benchmark: BenchmarkRequest;
+      if (mode === "discovery") {
+        const name = url.searchParams.get("name");
+        const description = url.searchParams.get("description");
+        if (!validDiscoveryField(name, 200) || !validDiscoveryField(description, 1_000)) {
+          return json({ error: "discovery mode requires a non-empty name (up to 200 characters) and description (up to 1,000 characters)" }, 400);
+        }
+        benchmark = { mode: "discovery", name: name.trim(), description: description.trim() };
+      } else if (mode === "ranking") {
+        const query = url.searchParams.get("query");
+        if (!validQuery(query)) {
+          return json({ error: "query must be a non-empty string up to 10,000 characters" }, 400);
+        }
+        benchmark = { mode: "ranking", query };
+      } else {
+        return json({ error: "mode must be ranking or discovery" }, 400);
       }
       const requestReceivedAt = new Date().toISOString();
       let runName: string | undefined;
       try {
-        runName = await queueRun(query, requestReceivedAt, env);
+        runName = await queueRun(benchmark, requestReceivedAt, env);
         const resultUrl = new URL(`/runs/${runName}`, url.origin);
         if (key !== null) resultUrl.searchParams.set("key", key);
         return json({
           state: "queued",
+          mode: benchmark.mode,
           runId: runName,
           resultUrl: resultUrl.toString(),
         }, 202);
@@ -586,19 +612,33 @@ export default {
       } catch {
         return json({ error: "Expected a JSON body" }, 400);
       }
-      const query =
-        typeof body === "object" && body !== null && "query" in body
-          ? (body as { query?: unknown }).query
-          : undefined;
-      if (typeof query !== "string" || !validQuery(query)) {
-        return json({ error: "query must be a non-empty string up to 10,000 characters" }, 400);
+      if (typeof body !== "object" || body === null) return json({ error: "Expected a JSON object" }, 400);
+      const record = body as Record<string, unknown>;
+      const mode = record.mode ?? "ranking";
+      let benchmark: BenchmarkRequest;
+      if (mode === "discovery") {
+        const name = typeof record.name === "string" ? record.name : null;
+        const description = typeof record.description === "string" ? record.description : null;
+        if (!validDiscoveryField(name, 200) || !validDiscoveryField(description, 1_000)) {
+          return json({ error: "discovery mode requires a non-empty name (up to 200 characters) and description (up to 1,000 characters)" }, 400);
+        }
+        benchmark = { mode: "discovery", name: name.trim(), description: description.trim() };
+      } else if (mode === "ranking") {
+        const query = typeof record.query === "string" ? record.query : null;
+        if (!validQuery(query)) {
+          return json({ error: "query must be a non-empty string up to 10,000 characters" }, 400);
+        }
+        benchmark = { mode: "ranking", query };
+      } else {
+        return json({ error: "mode must be ranking or discovery" }, 400);
       }
 
       let runName: string | undefined;
       try {
-        runName = await queueRun(query, requestReceivedAt, env);
+        runName = await queueRun(benchmark, requestReceivedAt, env);
         return json({
           state: "queued",
+          mode: benchmark.mode,
           runName,
           artifacts: {
             status: `/runs/${runName}/status.json`,

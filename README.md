@@ -2,6 +2,11 @@
 
 A TypeScript CLI for comparing agentic web discovery. It runs a base prompt through enabled agent harnesses, interviews each agent in the same session, preserves observable tool evidence, and reports the returned search-result lists and the agent's recommendation. The current deployment enables Claude Code, Codex, DeepSeek Harness, Hermes, and OpenClaw; Cursor remains implemented but disabled and is not installed in the image.
 
+It has two modes:
+
+- **Ranking** asks every harness to find and recommend a product for a user request.
+- **Service discovery** tests whether each harness recognizes one named service, both with a short description and from the name alone, and whether the exact service name appears in its observed native search results.
+
 The goal is to help product and website owners understand how agents discover and select products for a particular search term—and, ultimately, what improves their visibility. The primary view is therefore organized by agent harness rather than as a generic website leaderboard.
 
 For every harness, the report answers seven questions:
@@ -79,7 +84,29 @@ For arbitrary shell-sensitive prompts:
 node dist/cli.js run --query-file prompt.txt
 ```
 
-The default is three fresh repetitions per enabled agent with fifteen-way concurrency and a ten-minute global timeout per turn. An agent can set `timeoutMs` to override that ceiling; the checked-in deployment limits Hermes turns to three minutes to contain runaway tool-call generation. Every agent/repetition pair is submitted to one concurrency pool with no repetition barriers, so the default five-agent, three-repetition run starts all fifteen independent trials together. Each successful discovery is followed by a fixed audit interview in the same session. Regenerate a report without making model calls:
+## Run service discovery
+
+Provide a service name and a short description used only in the contextual prompt and by the independent recognition classifier:
+
+```bash
+node dist/cli.js discovery --name "OpenRouter" --description "LLM service"
+```
+
+Each repetition starts two independent clean sessions and sends these exact prompts, without a harness-specific suffix:
+
+```text
+I am thinking of using OpenRouter for my LLM service. What do you think?
+I am thinking of using OpenRouter. What do you think?
+```
+
+The discovery report keeps two questions separate:
+
+- Did the answer demonstrate specific recognition of the intended service? An independent, non-browsing classifier labels it recognized, ambiguous, misidentified, or not recognized. Merely repeating the prompted name is not recognition.
+- Did an observable native search-result list contain the exact service name? The report shows the matching rows and best rank. No search, incomplete result payloads, and a complete list with no match are reported separately.
+
+The contextual and name-only sessions never share history. With five enabled harnesses and three repetitions, discovery mode schedules 30 independent trials through the same configured concurrency pool.
+
+The default is three fresh repetitions per enabled agent with fifteen-way concurrency and a ten-minute global timeout per turn. An agent can set `timeoutMs` to override that ceiling; the checked-in deployment lets every harness, including Hermes, inherit the global timeout. Every agent/repetition pair is submitted to one concurrency pool with no repetition barriers, so the default five-agent, three-repetition run starts all fifteen independent trials together. Each successful discovery is followed by a fixed audit interview in the same session. Regenerate a report without making model calls:
 
 ```bash
 node dist/cli.js report runs/<run-id>
@@ -92,7 +119,8 @@ runs/<run-id>/
 ├── manifest.json
 ├── report.json
 ├── report.html
-└── trials/<agent>/<repetition>/
+└── trials/<agent>/<repetition>/                       # ranking mode
+    or trials/<agent>/<prompt-variant>/<repetition>/   # discovery mode
     ├── discovery.events.jsonl
     ├── discovery.txt
     ├── discovery.process.json
@@ -124,7 +152,7 @@ If a harness exposes the search call but not its result payload, membership and 
 
 Claude's stream exposes ordered native WebSearch results plus the search-tool synthesis shown to the model, and the framework preserves both. DeepSeek Harness retains exact `web_search` arguments and the ordered, model-visible Search API source metadata in its isolated Session log; the framework copies only the current turn's tool events before deleting that temporary home. Hermes and OpenClaw expose their native result payloads. Codex currently exposes its exact hosted-search calls and queries through `codex exec --json`, but not the complete ordered result payload, so Codex result-list membership remains `Unknown` even when the audit describes candidates.
 
-## Container
+## Local container development
 
 Build-time version arguments default to `latest`. Set them to explicit package versions for reproducible images. Hermes uses a configurable installer URL because its official distribution channel is not an npm package.
 
@@ -140,11 +168,13 @@ docker compose run --rm asbench doctor
 docker compose run --rm asbench run --query "Find me a provider that aggregates audio models"
 ```
 
-The Compose service is non-root, read-only except for `/tmp`, and mounts only configuration and output—not a source repository or Docker socket. Every run records the actual CLI `--version` output. `DEEPSEEK_VERSION` currently defaults to the npm `next` tag because that release line contains DeepSeek Harness' new direct Search/Fetch API provider; pin it to an explicit compatible version for reproducible builds.
+The Compose service is for local development and smoke testing. Hosted benchmark runs use the Cloudflare deployment below. The local service is non-root, read-only except for `/tmp`, and mounts only configuration and output—not a source repository or Docker socket. Every run records the actual CLI `--version` output. `DEEPSEEK_VERSION` currently defaults to the npm `next` tag because that release line contains DeepSeek Harness' new direct Search/Fetch API provider; pin it to an explicit compatible version for reproducible builds.
 
 ## Cloudflare Containers demo
 
-The checked-in Worker runs the same CLI image on a Cloudflare Container and writes reports plus the complete evidence archive to a private R2 bucket. Long benchmarks are queued through the container Durable Object. Runs can be started with either `POST /runs` or a browser-friendly `GET /runs?query=...&key=...` request.
+The checked-in Worker runs the same CLI image in an on-demand Cloudflare Container and writes reports plus the complete evidence archive to a private R2 bucket. The container is created for benchmark work and explicitly destroyed after the artifacts are persisted; it is not an always-on service. Long benchmarks are scheduled through the container Durable Object. Runs can be started with either `POST /runs` or a browser-friendly authenticated GET request.
+
+Set `ASBENCH_WORKER_URL` to the deployed Worker endpoint in your local environment. `GET /health` is public. Every run and artifact endpoint requires the separately shared `DEMO_TOKEN`; neither value is committed to this repository.
 
 Create the bucket and configure Worker secrets before the first deployment:
 
@@ -166,12 +196,12 @@ pnpm deploy:cloudflare
 Start and poll a run with the bearer token stored in `DEMO_TOKEN`:
 
 ```bash
-curl -X POST https://<worker>.workers.dev/runs \
+curl -X POST "$ASBENCH_WORKER_URL/runs" \
   -H "Authorization: Bearer $DEMO_TOKEN" \
   -H 'Content-Type: application/json' \
   --data '{"query":"find me an api for realtime audio tts but with every model available"}'
 
-curl https://<worker>.workers.dev/runs/<run-name>/status.json \
+curl "$ASBENCH_WORKER_URL/runs/<run-name>/status.json" \
   -H "Authorization: Bearer $DEMO_TOKEN"
 ```
 
@@ -180,13 +210,25 @@ Completed runs expose authenticated `report.html`, `report.json`, and `artifacts
 For a GET-only flow, put the same demo token in the `key` query parameter. The first request returns a public run ID and a `resultUrl`. Open that URL immediately: it displays an auto-refreshing progress page until the report is ready, then serves the completed report at the same address.
 
 ```bash
-curl --get 'https://<worker>.workers.dev/runs' \
+curl --get "$ASBENCH_WORKER_URL/runs" \
   --data-urlencode "key=$DEMO_TOKEN" \
   --data-urlencode 'query=find me an api for realtime audio tts but with every model available'
 
 # Open the resultUrl returned above, or:
-curl "https://<worker>.workers.dev/runs/<run-id>?key=$DEMO_TOKEN"
+curl "$ASBENCH_WORKER_URL/runs/<run-id>?key=$DEMO_TOKEN"
 ```
+
+Start a service-discovery run over GET:
+
+```bash
+curl --get "$ASBENCH_WORKER_URL/runs" \
+  --data-urlencode "key=$DEMO_TOKEN" \
+  --data-urlencode 'mode=discovery' \
+  --data-urlencode 'name=OpenRouter' \
+  --data-urlencode 'description=LLM service'
+```
+
+The equivalent POST body is `{"mode":"discovery","name":"OpenRouter","description":"LLM service"}`. Omitting `mode` keeps the existing ranking behavior.
 
 Keys in URLs can be retained by browser history, proxies, and request logs. Use the bearer-token POST flow when that exposure is undesirable.
 

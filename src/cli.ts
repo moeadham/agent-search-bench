@@ -4,8 +4,9 @@ import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { createConfigTemplate, DEFAULT_CONFIG_PATH, loadConfig, writeConfig, writeConfigTemplate } from "./config.js";
+import { validateDiscoverySubject } from "./discovery.js";
 import { doctor } from "./doctor.js";
-import { readQuery, runBenchmark } from "./orchestrator.js";
+import { readQuery, runBenchmark, runDiscoveryBenchmark } from "./orchestrator.js";
 import { generateReport } from "./report.js";
 
 const program = new Command();
@@ -75,6 +76,20 @@ program.command("run")
     const query = await readQuery(options);
     const directory = await runBenchmark({ config: loaded.config, configRaw: loaded.raw, query });
     console.log(`Run complete: ${directory}`);
+    console.log(`Report: ${resolve(directory, "report.html")}`);
+  });
+
+program.command("discovery")
+  .alias("discover")
+  .description("Test whether agents recognize a named service with and without descriptive context")
+  .requiredOption("--name <name>", "service name")
+  .requiredOption("--description <text>", "very short description of what the service does")
+  .option("-c, --config <path>", "configuration path", DEFAULT_CONFIG_PATH)
+  .action(async (options: { config: string; name: string; description: string }) => {
+    const loaded = await loadConfig(options.config);
+    const subject = validateDiscoverySubject(options.name, options.description);
+    const directory = await runDiscoveryBenchmark({ config: loaded.config, configRaw: loaded.raw, subject });
+    console.log(`Discovery run complete: ${directory}`);
     console.log(`Report: ${resolve(directory, "report.html")}`);
   });
 

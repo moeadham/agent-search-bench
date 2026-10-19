@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { adapters } from "./adapters/index.js";
 import { AGENT_IDS, type AgentId } from "./constants.js";
+import { deepSeekStatePatch } from "./deepseek-state.js";
 import { parseTurn } from "./evidence.js";
 import { judgeTrial } from "./judge.js";
 import { runProcess } from "./process.js";
@@ -62,13 +63,8 @@ async function liveCheck(id: AgentId, config: BenchmarkConfig): Promise<DoctorCh
     if (id === "deepseek") {
       const stateDir = join(homeDir, ".dsh");
       await mkdir(stateDir, { recursive: true });
-      await writeFile(join(stateDir, "cordis.patch.yml"), `${JSON.stringify([
-        { id: "agent-default-model", config: { provider: "deepseek-official", model: agent.model } },
-        { id: "web", config: { searchProvider: agent.searchProvider ?? "deepseek-search-api", fetchProvider: "deepseek-fetch-api" } },
-        { id: "web-deepseek-api", config: { apiKeyEnv: agent.credentialEnv[0], count: 10, sendOriginalQuestion: true } },
-        { id: "tool-web", config: { searchMaxResults: 10 } },
-        { id: "session-persistence-jsonl", config: { compression: "none" } },
-      ], null, 2)}\n`, { mode: 0o600 });
+      await mkdir(join(stateDir, "sessions"), { recursive: true, mode: 0o700 });
+      await writeFile(join(stateDir, "cordis.patch.yml"), `${JSON.stringify(deepSeekStatePatch(agent, stateDir), null, 2)}\n`, { mode: 0o600 });
     }
     if (id === "hermes") {
       const stateDir = join(homeDir, ".hermes");

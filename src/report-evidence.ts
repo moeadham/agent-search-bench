@@ -116,6 +116,7 @@ export function buildTrialJourney(trial: TrialResult, aliases: Record<string, st
     return {
       agent: trial.agent,
       repetition: trial.repetition,
+      ...(trial.promptVariant ? { promptVariant: trial.promptVariant } : {}),
       relationship: "unknown",
       basis: "unknown",
       ownedDomainRank: null,
@@ -153,6 +154,7 @@ export function buildTrialJourney(trial: TrialResult, aliases: Record<string, st
   return {
     agent: trial.agent,
     repetition: trial.repetition,
+    ...(trial.promptVariant ? { promptVariant: trial.promptVariant } : {}),
     recommendation: candidate.name,
     relationship,
     basis,

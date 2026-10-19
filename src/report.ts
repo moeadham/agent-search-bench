@@ -1,9 +1,10 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { parseTurn, toolQueries } from "./evidence.js";
+import { buildDiscoverySummaries } from "./discovery.js";
 import { buildReport } from "./metrics.js";
 import { observedSearches, primaryRecommendation } from "./report-evidence.js";
-import type { BenchmarkReport, HarnessInsight, RunManifest, ToolEvidence, TrialEvidenceJourney, TrialResult } from "./types.js";
+import type { BenchmarkReport, DiscoveryHarnessSummary, DiscoveryPromptVariant, DiscoveryTrialAssessment, HarnessInsight, RunManifest, ToolEvidence, TrialEvidenceJourney, TrialResult } from "./types.js";
 
 function escapeHtml(value: unknown): string {
   return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -296,10 +297,112 @@ function harnessEvidence(report: BenchmarkReport, agent: string): string {
 }
 
 function diagnostics(report: BenchmarkReport): string {
-  return `<details class="diagnostics"><summary>Run diagnostics</summary><div class="row-list">${report.trials.map((trial) => `<div class="data-row"><h4>${escapeHtml(agentName(trial.agent))} · Trial ${trial.repetition}</h4><dl class="fact-rows"><div><dt>Status</dt><dd>${trial.success ? "Success" : "Failed"}</dd></div><div><dt>Discovery</dt><dd>${trial.timing.discoveryMs} ms</dd></div><div><dt>Interview</dt><dd>${trial.timing.interviewMs ?? "—"}${trial.timing.interviewMs === undefined ? "" : " ms"}</dd></div><div><dt>Total</dt><dd>${trial.timing.totalMs} ms</dd></div><div><dt>Failure</dt><dd>${escapeHtml(trial.error ?? "—")}</dd></div></dl></div>`).join("")}</div><h3>Harness versions and configuration</h3><pre>${escapeHtml(JSON.stringify(report.harnesses ?? {}, null, 2))}</pre></details>`;
+  return `<details class="diagnostics"><summary>Run diagnostics</summary><div class="row-list">${report.trials.map((trial) => `<div class="data-row"><h4>${escapeHtml(agentName(trial.agent))}${trial.promptVariant ? ` · ${escapeHtml(variantLabel(trial.promptVariant))}` : ""} · Trial ${trial.repetition}</h4><dl class="fact-rows"><div><dt>Status</dt><dd>${trial.success ? "Success" : "Failed"}</dd></div><div><dt>Discovery</dt><dd>${trial.timing.discoveryMs} ms</dd></div><div><dt>Interview</dt><dd>${trial.timing.interviewMs ?? "—"}${trial.timing.interviewMs === undefined ? "" : " ms"}</dd></div><div><dt>Total</dt><dd>${trial.timing.totalMs} ms</dd></div><div><dt>Failure</dt><dd>${escapeHtml(trial.error ?? "—")}</dd></div></dl></div>`).join("")}</div><h3>Harness versions and configuration</h3><pre>${escapeHtml(JSON.stringify(report.harnesses ?? {}, null, 2))}</pre></details>`;
+}
+
+function variantLabel(variant: DiscoveryPromptVariant): string {
+  return variant === "name_with_description" ? "Name + description" : "Name only";
+}
+
+function recognitionLabel(value: DiscoveryTrialAssessment["answerRecognition"]): string {
+  return {
+    recognized: "Recognized",
+    ambiguous: "Ambiguous",
+    misidentified: "Misidentified",
+    not_recognized: "Not recognized",
+    unavailable: "Unavailable",
+  }[value];
+}
+
+function searchStatusLabel(value: DiscoveryTrialAssessment["searchStatus"]): string {
+  return {
+    found: "Exact name found",
+    not_found: "Not found in complete results",
+    unknown: "Result list incomplete",
+    not_searched: "No search observed",
+  }[value];
+}
+
+function discoveryConclusion(summary: DiscoveryHarnessSummary): string {
+  const contextual = summary.variants.find((variant) => variant.variant === "name_with_description");
+  const nameOnly = summary.variants.find((variant) => variant.variant === "name_only");
+  const recognizedNameOnly = (nameOnly?.recognized ?? 0) > 0;
+  const foundAnywhere = summary.variants.some((variant) => variant.searchFound > 0);
+  const searched = summary.variants.some((variant) => variant.searchAttempted > 0);
+  if (recognizedNameOnly && foundAnywhere) return "At least one name-only answer recognized the service, and its exact name appeared in at least one observed native search result list.";
+  if (recognizedNameOnly) return "At least one name-only answer recognized the service, but this run did not prove that its native search index returned the service.";
+  if (foundAnywhere) return "The service appeared in observed native search results, but the agent’s answer did not consistently demonstrate name-only recognition.";
+  if (searched && (contextual?.searchNotFound ?? 0) + (nameOnly?.searchNotFound ?? 0) > 0) return "At least one complete observed search result list did not contain the exact service name; other trials may still be unknown.";
+  return "This run is inconclusive: no observed result list established index recognition, and name-only answer recognition was not demonstrated.";
+}
+
+function discoveryTrialDetails(report: BenchmarkReport, assessment: DiscoveryTrialAssessment): string {
+  const trial = report.trials.find((item) => item.agent === assessment.agent
+    && item.repetition === assessment.repetition
+    && item.promptVariant === assessment.variant);
+  if (!trial) return "";
+  const searches = observedSearches(trial.discovery.tools);
+  const matchRows = assessment.matchedResults.length
+    ? `<ol class="results">${assessment.matchedResults.map((match) => `<li><strong>#${match.rank} in search ${match.search}</strong> ${link(match.url, match.name)} <span class="domain">${escapeHtml(match.domain)}</span><p>Matched ${escapeHtml(match.matchedField.replace("_", " "))}</p></li>`).join("")}</ol>`
+    : `<p class="muted">No exact-name result row was observed.</p>`;
+  return `<details class="trial"><summary>Trial ${assessment.repetition} <span class="pill ${trial.success ? "success" : "failure"}">${trial.success ? "successful" : "failed"}</span></summary>
+    <h4>Exact prompt</h4><div class="prompt compact">${escapeHtml(assessment.prompt)}</div>
+    <dl class="fact-rows">
+      <div><dt>Answer recognition</dt><dd>${escapeHtml(recognitionLabel(assessment.answerRecognition))}</dd></div>
+      <div><dt>Recognition confidence</dt><dd>${assessment.recognitionConfidence === null ? "—" : `${Math.round(assessment.recognitionConfidence * 100)}%`}</dd></div>
+      <div><dt>Search/index evidence</dt><dd>${escapeHtml(searchStatusLabel(assessment.searchStatus))}</dd></div>
+      <div><dt>Best exact-name rank</dt><dd>${escapeHtml(positionLabel(assessment.bestResultRank))}</dd></div>
+    </dl>
+    <div class="analysis"><h4>Why the answer was classified this way</h4><p class="label">Independent analysis of the answer and agent-reported audit; no browsing or outside knowledge.</p><p>${escapeHtml(assessment.recognitionExplanation ?? trial.judge.error ?? "Unavailable")}</p></div>
+    <h4>Exact-name result matches</h4>${matchRows}
+    <h4>Observed searches and full result rows</h4>${searches.length ? searches.map(searchDetails).join("") : `<p class="muted">No native web-search call was observed.</p>`}
+    <details><summary>Agent answer</summary><div class="answer">${readableMarkdown(trial.discovery.finalText || "Unavailable")}</div></details>
+    <details><summary>Same-session audit</summary><p class="label">Agent-reported; not hidden reasoning.</p><div class="answer">${readableMarkdown(trial.interview?.finalText || "Unavailable")}</div></details>
+    ${trial.interviewPerformedNewResearch ? `<p class="warning">The audit performed a new search, fetch, or browser action despite its instruction.</p>` : ""}
+  </details>`;
+}
+
+function discoveryVariant(report: BenchmarkReport, summary: DiscoveryHarnessSummary, variant: DiscoveryPromptVariant): string {
+  const aggregate = summary.variants.find((item) => item.variant === variant);
+  const trials = summary.trials.filter((trial) => trial.variant === variant);
+  if (!aggregate) return "";
+  const prompt = trials[0]?.prompt ?? "Unavailable";
+  return `<section class="variant-row"><h3>${escapeHtml(variantLabel(variant))}</h3><div class="prompt compact">${escapeHtml(prompt)}</div>
+    <dl class="fact-rows">
+      <div><dt>Answers recognized service</dt><dd>${aggregate.recognized}/${aggregate.scheduled}</dd></div>
+      <div><dt>Search attempted</dt><dd>${aggregate.searchAttempted}/${aggregate.scheduled}</dd></div>
+      <div><dt>Exact name found in results</dt><dd>${aggregate.searchFound}/${aggregate.scheduled}</dd></div>
+      <div><dt>Complete lists without a match</dt><dd>${aggregate.searchNotFound}/${aggregate.scheduled}</dd></div>
+      <div><dt>Unknown result lists</dt><dd>${aggregate.searchUnknown}/${aggregate.scheduled}</dd></div>
+      <div><dt>Best observed result rank</dt><dd>${aggregate.bestResultRank === null ? "—" : `#${aggregate.bestResultRank}`}</dd></div>
+    </dl>
+    <details class="primary-dropdown"><summary>Trial evidence (${trials.length})</summary>${trials.map((trial) => discoveryTrialDetails(report, trial)).join("")}</details>
+  </section>`;
+}
+
+function renderDiscoveryHtml(report: BenchmarkReport): string {
+  const subject = report.subject;
+  if (!subject) throw new Error("Discovery report requires a subject");
+  const summaries = report.discovery ?? [];
+  const prompts = [
+    `I am thinking of using ${subject.name} for my ${subject.description}. What do you think?`,
+    `I am thinking of using ${subject.name}. What do you think?`,
+  ];
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent Search Bench — ${escapeHtml(subject.name)}</title><style>
+  :root{color-scheme:light;--ink:#17211b;--muted:#5f6f64;--line:#dce4de;--paper:#fff;--soft:#f4f7f4;--accent:#176b45;--accent-soft:#e7f4ec;--warn:#8a4b08}*{box-sizing:border-box}body{margin:0;background:#eef2ee;color:var(--ink);font:15px/1.6 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:960px;margin:auto;padding:40px 24px 80px}header,.card,.comparison-row,.diagnostics{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:26px}header{margin-bottom:20px}h1{font-size:clamp(28px,5vw,46px);line-height:1.08;margin:0 0 18px}h2{font-size:22px;margin:0 0 10px}h3{font-size:18px;margin:20px 0 8px}h4{margin:20px 0 8px}p{margin:9px 0}.meta,.muted,.label{color:var(--muted)}.label{font-size:13px}.subject{font-size:18px;background:var(--accent-soft);padding:16px;border-radius:9px}.prompt{font-size:17px;background:var(--soft);border-left:4px solid var(--accent);padding:14px;border-radius:6px;white-space:pre-wrap}.prompt.compact{font-size:15px}.prompt+.prompt{margin-top:10px}.cards,.comparison-list{display:flex;flex-direction:column;gap:14px}.card{margin:14px 0}.card-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.lead{font-size:17px}.pill{display:inline-block;background:var(--soft);border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:12px}.success{background:var(--accent-soft);color:var(--accent)}.failure{background:#fce8e6;color:#912018}section{margin-top:30px}.variant-row{margin-top:20px;padding-top:8px;border-top:1px solid var(--line)}details{border-top:1px solid var(--line);padding:11px 0}summary{cursor:pointer;font-weight:680}.primary-dropdown{border:1px solid var(--line);border-radius:10px;padding:14px 16px}.trial{margin:12px 0;padding:16px;border:1px solid var(--line);border-radius:10px}.search{margin:8px 0;padding:11px 13px;background:var(--soft);border-radius:8px}.search summary{display:flex;justify-content:space-between;gap:16px}.results li{padding:7px 0}.results p{color:var(--muted);margin:3px 0}.domain{color:var(--muted);font-size:12px;margin-left:6px}.fact-rows{margin:14px 0;border:1px solid var(--line);border-radius:9px;overflow:hidden}.fact-rows>div{padding:11px 13px;border-bottom:1px solid var(--line)}.fact-rows>div:last-child{border-bottom:0}.fact-rows dt{color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}.fact-rows dd{margin:2px 0 0;font-weight:650}.analysis,.answer{margin-top:14px;padding:15px 17px;background:#fbfcfb;border:1px solid var(--line);border-radius:9px}.analysis h4{margin-top:0}.answer p{max-width:78ch}.warning{color:var(--warn)}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#17211b;color:#e9f1eb;padding:14px;border-radius:8px;max-height:460px;overflow:auto}a{color:var(--accent);text-underline-offset:2px}@media(max-width:600px){main{padding:18px 12px 50px}header,.card,.comparison-row{padding:18px}.card-heading,.search summary{align-items:flex-start;flex-direction:column}}
+  </style></head><body><main>
+  <header><p class="meta">Agent Search Bench · Discovery mode</p><h1>Do agents know ${escapeHtml(subject.name)}?</h1><div class="subject"><strong>${escapeHtml(subject.name)}</strong><br>${escapeHtml(subject.description)}</div><h3>Prompts tested</h3>${prompts.map((prompt) => `<div class="prompt compact">${escapeHtml(prompt)}</div>`).join("")}<p class="meta">Run ${escapeHtml(report.runId)} · ${report.successfulTrials}/${report.scheduledTrials} successful trials</p></header>
+  <section><h2>Harness findings</h2><p class="meta">Answer recognition is evaluated independently from observed native search/index evidence.</p><div class="cards">${summaries.map((summary) => {
+    const metadata = report.harnesses?.[summary.agent];
+    return `<article class="card"><div class="card-heading"><h2>${escapeHtml(agentName(summary.agent))}</h2><span class="pill">${summary.trials.filter((trial) => trial.success).length}/${summary.trials.length} successful</span></div><p class="meta">Model: ${escapeHtml(metadata?.modelPin ?? "unknown")} · Native search backend: ${escapeHtml(metadata?.searchBackend ?? "unknown")}</p><p class="lead">${escapeHtml(discoveryConclusion(summary))}</p>${discoveryVariant(report, summary, "name_with_description")}${discoveryVariant(report, summary, "name_only")}</article>`;
+  }).join("")}</div></section>
+  <section><h2>Cross-harness comparison</h2><div class="comparison-list">${summaries.map((summary) => `<article class="comparison-row"><h3>${escapeHtml(agentName(summary.agent))}</h3>${summary.variants.map((variant) => `<dl class="fact-rows"><div><dt>Prompt</dt><dd>${escapeHtml(variantLabel(variant.variant))}</dd></div><div><dt>Recognized</dt><dd>${variant.recognized}/${variant.scheduled}</dd></div><div><dt>Exact name in search results</dt><dd>${variant.searchFound}/${variant.scheduled}</dd></div><div><dt>Best rank</dt><dd>${variant.bestResultRank === null ? "—" : `#${variant.bestResultRank}`}</dd></div></dl>`).join("")}</article>`).join("")}</div></section>
+  <section>${diagnostics(report)}</section>
+  </main></body></html>`;
 }
 
 export function renderHtml(report: BenchmarkReport): string {
+  if (report.mode === "discovery") return renderDiscoveryHtml(report);
   const agents = report.agents.map((summary) => summary.agent);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent Search Bench — ${escapeHtml(report.query)}</title><style>
   :root{color-scheme:light;--ink:#17211b;--muted:#5f6f64;--line:#dce4de;--paper:#fff;--soft:#f4f7f4;--accent:#176b45;--accent-soft:#e7f4ec;--warn:#8a4b08}*{box-sizing:border-box}body{margin:0;background:#eef2ee;color:var(--ink);font:15px/1.6 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:960px;margin:auto;padding:40px 24px 80px}header,.card,.harness-evidence,.diagnostics,.comparison-row{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:26px}header{margin-bottom:20px}h1{font-size:clamp(28px,5vw,46px);line-height:1.08;margin:0 0 18px}h2{margin:0;font-size:22px}h3{font-size:17px;margin:18px 0 8px}h4{margin:22px 0 8px}h5{font-size:15px;margin:20px 0 8px}p{margin:9px 0}.prompt{font-size:18px;background:var(--soft);border-left:4px solid var(--accent);padding:16px;border-radius:6px;white-space:pre-wrap}.meta,.muted,.label{color:var(--muted)}.label{font-size:13px}.cards,.comparison-list,.row-list{display:flex;flex-direction:column;gap:14px}.card{box-shadow:0 5px 18px rgba(28,54,37,.04)}.card-heading{display:flex;justify-content:space-between;gap:12px;align-items:center}.lead{font-size:17px}.pill{display:inline-block;background:var(--soft);border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:12px;white-space:nowrap}.success{background:var(--accent-soft);color:var(--accent)}.failure{background:#fce8e6;color:#912018}.opportunity{margin:18px 0;padding:18px;background:var(--accent-soft);border-radius:10px}.opportunity h3{margin-top:0}.opportunity.unavailable{background:var(--soft)}.page-title{font-weight:700}section{margin-top:32px}details{border-top:1px solid var(--line);padding:11px 0}summary{cursor:pointer;font-weight:680;list-style-position:outside}.primary-dropdown{margin-top:12px;border:1px solid var(--line);border-radius:10px;padding:14px 16px}.primary-dropdown[open]>summary{margin-bottom:14px}.data-row,.recommendation-row{border:1px solid var(--line);border-radius:9px;padding:14px;background:var(--paper)}.row-label{color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.recommendation-row summary{display:flex;gap:12px;justify-content:space-between}.harness-evidence,.diagnostics{padding:18px 22px;margin:12px 0}.trial{margin:12px 0;padding:16px;border:1px solid var(--line);border-radius:10px}.search{margin:8px 0;padding:11px 13px;background:var(--soft);border-radius:8px}.search summary{display:flex;justify-content:space-between;gap:16px}.results li{padding:7px 0}.results p{color:var(--muted);margin:3px 0}.domain{color:var(--muted);font-size:12px;margin-left:6px}.journey{margin:16px 0;padding:0;list-style:none;counter-reset:journey}.journey>li{counter-increment:journey;border:1px solid var(--line);border-radius:8px;padding:14px;margin:8px 0;background:var(--soft)}.journey>li:before{content:counter(journey) ". ";font-weight:750;color:var(--accent)}.journey ol{padding-left:24px}.fact-rows{margin:14px 0;border:1px solid var(--line);border-radius:9px;overflow:hidden}.fact-rows>div{padding:11px 13px;border-bottom:1px solid var(--line)}.fact-rows>div:last-child{border-bottom:0}.fact-rows dt{color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}.fact-rows dd{margin:2px 0 0;font-weight:650}.comparison-row h3{margin-top:0}.rationale{margin-top:18px;padding:16px 18px;background:#fbfcfb;border:1px solid var(--line);border-radius:9px}.rationale h4,.rationale h5{margin-top:12px}.rationale p{max-width:78ch}.rationale li{margin:6px 0}.rationale code{background:#edf1ed;border-radius:4px;padding:1px 4px;font-size:.92em}.rationale hr{border:0;border-top:1px solid var(--line);margin:18px 0}.unknown,.warning{color:var(--warn)}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#17211b;color:#e9f1eb;padding:14px;border-radius:8px;max-height:460px;overflow:auto}a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}@media(max-width:600px){main{padding:18px 12px 50px}header,.card,.comparison-row{padding:18px}.card-heading,.recommendation-row summary,.search summary{align-items:flex-start;flex-direction:column}.harness-evidence,.diagnostics{padding:15px}}
@@ -326,7 +429,13 @@ async function findTrialFiles(root: string): Promise<string[]> {
 }
 
 async function refreshTrialEvidence(file: string): Promise<TrialResult> {
-  const trial = JSON.parse(await readFile(file, "utf8")) as TrialResult;
+  const rawTrial = await readFile(file, "utf8");
+  let trial: TrialResult;
+  try {
+    trial = JSON.parse(rawTrial) as TrialResult;
+  } catch (error) {
+    throw new Error(`Could not parse trial artifact ${file}: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const directory = dirname(file);
   for (const phase of ["discovery", "interview"] as const) {
     if (phase === "interview" && !trial.interview) continue;
@@ -357,9 +466,15 @@ export async function generateReport(runDirectory: string, newInsights?: Harness
   const manifest = JSON.parse(await readFile(join(root, "manifest.json"), "utf8")) as RunManifest;
   const files = await findTrialFiles(join(root, "trials"));
   const trials = await Promise.all(files.map(refreshTrialEvidence));
-  trials.sort((left, right) => left.agent.localeCompare(right.agent) || left.repetition - right.repetition);
+  trials.sort((left, right) => left.agent.localeCompare(right.agent) || (left.promptVariant ?? "").localeCompare(right.promptVariant ?? "") || left.repetition - right.repetition);
   const insights = newInsights ?? await previousInsights(root);
-  const report = { ...buildReport(manifest.runId, manifest.query, trials, manifest.aliases ?? {}, insights), harnesses: manifest.agents };
+  const report: BenchmarkReport = {
+    ...buildReport(manifest.runId, manifest.query, trials, manifest.aliases ?? {}, insights),
+    mode: manifest.mode ?? "ranking",
+    ...(manifest.subject ? { subject: manifest.subject } : {}),
+    harnesses: manifest.agents,
+    ...(manifest.mode === "discovery" && manifest.subject ? { discovery: buildDiscoverySummaries(manifest.subject, trials) } : {}),
+  };
   await mkdir(root, { recursive: true, mode: 0o700 });
   await writeFile(join(root, "report.json"), `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
   await writeFile(join(root, "report.html"), renderHtml(report), { mode: 0o600 });

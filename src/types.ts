@@ -1,5 +1,13 @@
 import type { AgentId } from "./constants.js";
 
+export type BenchmarkMode = "ranking" | "discovery";
+export type DiscoveryPromptVariant = "name_with_description" | "name_only";
+
+export interface DiscoverySubject {
+  name: string;
+  description: string;
+}
+
 export interface AgentConfig {
   enabled: boolean;
   command: string;
@@ -118,6 +126,11 @@ export interface JudgeResult {
   rawOutput?: string;
   error?: string;
   attempts: number;
+  recognition?: {
+    status: "recognized" | "ambiguous" | "misidentified" | "not_recognized";
+    confidence: number;
+    explanation: string;
+  };
 }
 
 export interface TrialResult {
@@ -129,6 +142,7 @@ export interface TrialResult {
   failureStage?: "setup" | "discovery" | "resume" | "interview" | "judge";
   error?: string;
   modelPin: string;
+  promptVariant?: DiscoveryPromptVariant;
   discoveryPrompt?: string;
   discovery: TurnEvidence;
   interview?: TurnEvidence;
@@ -145,7 +159,9 @@ export interface TrialResult {
 export interface RunManifest {
   schemaVersion: string;
   runId: string;
+  mode?: BenchmarkMode;
   query: string;
+  subject?: DiscoverySubject;
   interviewPromptVersion: string;
   interviewPrompt: string;
   startedAt: string;
@@ -156,6 +172,7 @@ export interface RunManifest {
   configHash: string;
   aliases: Record<string, string>;
   agentPrompts?: Partial<Record<AgentId, string>>;
+  discoveryPrompts?: Array<{ variant: DiscoveryPromptVariant; prompt: string }>;
   gitCommit?: string;
   imageIdentity?: string;
   agents: Partial<Record<AgentId, {
@@ -211,6 +228,7 @@ export interface EvidencePosition {
 export interface TrialEvidenceJourney {
   agent: AgentId;
   repetition: number;
+  promptVariant?: DiscoveryPromptVariant;
   recommendation?: string;
   relationship: "direct_result" | "mentioned_result" | "not_observed" | "unknown";
   basis: "returned_and_opened" | "returned_not_opened" | "mentioned_only" | "not_observed" | "unknown";
@@ -240,7 +258,9 @@ export interface HarnessInsight {
 export interface BenchmarkReport {
   schemaVersion: string;
   runId: string;
+  mode?: BenchmarkMode;
   query: string;
+  subject?: DiscoverySubject;
   generatedAt: string;
   scheduledTrials: number;
   successfulTrials: number;
@@ -250,4 +270,48 @@ export interface BenchmarkReport {
   trials: TrialResult[];
   journeys: TrialEvidenceJourney[];
   insights: HarnessInsight[];
+  discovery?: DiscoveryHarnessSummary[];
+}
+
+export interface DiscoveryResultMatch {
+  search: number;
+  rank: number;
+  name: string;
+  url: string;
+  domain: string;
+  matchedField: "title" | "snippet" | "site_name" | "domain";
+}
+
+export interface DiscoveryTrialAssessment {
+  agent: AgentId;
+  repetition: number;
+  variant: DiscoveryPromptVariant;
+  prompt: string;
+  success: boolean;
+  answerRecognition: "recognized" | "ambiguous" | "misidentified" | "not_recognized" | "unavailable";
+  recognitionConfidence: number | null;
+  recognitionExplanation: string | null;
+  searchStatus: "found" | "not_found" | "unknown" | "not_searched";
+  searchAttempted: boolean;
+  resultPayloadsComplete: boolean | null;
+  bestResultRank: EvidencePosition | null;
+  matchedResults: DiscoveryResultMatch[];
+}
+
+export interface DiscoveryVariantSummary {
+  variant: DiscoveryPromptVariant;
+  scheduled: number;
+  successful: number;
+  recognized: number;
+  searchAttempted: number;
+  searchFound: number;
+  searchNotFound: number;
+  searchUnknown: number;
+  bestResultRank: number | null;
+}
+
+export interface DiscoveryHarnessSummary {
+  agent: AgentId;
+  variants: DiscoveryVariantSummary[];
+  trials: DiscoveryTrialAssessment[];
 }

@@ -16,6 +16,8 @@ For every harness, the benchmark should make it easy to answer:
 
 The static HTML report should consolidate repeated trials by harness, lead with the actionable finding and content opportunity, and keep detailed evidence in expandable sections. Full raw events and transcripts belong in the evidence artifacts, not in the main narrative.
 
+The separate service-discovery mode asks whether agents recognize one named service and whether their native search result lists contain it. It runs two independent prompt variants per repetition: one with a short disambiguating description and one with the name alone. Reports must keep answer recognition separate from search/index evidence, show exact-name result matches and ranks, and never claim the index lacks a service when result payloads are incomplete.
+
 ## Evidence standard
 
 - Label native CLI events and tool payloads as **observed**.
@@ -32,6 +34,8 @@ The static HTML report should consolidate repeated trials by harness, lead with 
 
 - TypeScript/JavaScript is preferred for implementation work.
 - Benchmark runs should execute in the container, including cloud demos. The host repository and Docker socket must not be mounted into agent workspaces.
+- Local benchmark runs are resource-constrained validation only: use exactly one repetition and, whenever possible, enable only the harness or harnesses affected by the change.
+- Run the complete enabled-harness matrix and normal multi-repetition benchmark only in Cloudflare Containers, not on the local machine.
 - Start all independent agent/repetition trials through the shared concurrency pool; do not add repetition barriers.
 - Read credentials only from environment variables or `*_FILE` paths. Never commit secrets, credential stores, raw authorization headers, or generated run artifacts.
 - Redact before writing artifacts and use private filesystem permissions.
@@ -49,3 +53,5 @@ pnpm build
 ```
 
 Paid live tests require the explicit `ASBENCH_ENABLE_PAID_E2E=1` gate. Do not start a paid benchmark merely to validate deterministic parsing or reporting changes; replay recorded event artifacts instead.
+
+When a paid local run is necessary to validate a harness integration, limit it to one repetition and the changed harness. Use Cloudflare Containers for full paid acceptance runs across all enabled harnesses and configured repetitions.

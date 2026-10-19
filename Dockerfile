@@ -1,4 +1,4 @@
-FROM node:26-bookworm-slim AS agent-runtime
+FROM node:26-trixie-slim AS agent-runtime
 
 ARG CLAUDE_VERSION=latest
 ARG CODEX_VERSION=latest

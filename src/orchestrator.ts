@@ -41,6 +41,11 @@ async function prepareAgentState(agent: AgentId, config: BenchmarkConfig["agents
     await mkdir(join(stateDir, "sessions"), { recursive: true, mode: 0o700 });
     await privateWrite(join(stateDir, "cordis.patch.yml"), `${JSON.stringify(deepSeekStatePatch(config, stateDir), null, 2)}\n`);
   }
+  if (agent === "antigravity") {
+    const stateDir = join(homeDir, ".gemini", "antigravity-cli");
+    await mkdir(stateDir, { recursive: true, mode: 0o700 });
+    await privateWrite(join(stateDir, "settings.json"), `${JSON.stringify({ modelProvider: "gemini" }, null, 2)}\n`);
+  }
   if (agent === "hermes") {
     const stateDir = join(homeDir, ".hermes");
     await mkdir(stateDir, { recursive: true, mode: 0o700 });

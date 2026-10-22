@@ -66,6 +66,11 @@ async function liveCheck(id: AgentId, config: BenchmarkConfig): Promise<DoctorCh
       await mkdir(join(stateDir, "sessions"), { recursive: true, mode: 0o700 });
       await writeFile(join(stateDir, "cordis.patch.yml"), `${JSON.stringify(deepSeekStatePatch(agent, stateDir), null, 2)}\n`, { mode: 0o600 });
     }
+    if (id === "antigravity") {
+      const stateDir = join(homeDir, ".gemini", "antigravity-cli");
+      await mkdir(stateDir, { recursive: true });
+      await writeFile(join(stateDir, "settings.json"), `${JSON.stringify({ modelProvider: "gemini" }, null, 2)}\n`, { mode: 0o600 });
+    }
     if (id === "hermes") {
       const stateDir = join(homeDir, ".hermes");
       await mkdir(stateDir, { recursive: true });

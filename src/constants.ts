@@ -10,13 +10,14 @@ export function discoveryInterviewPrompt(name: string): string {
 
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 export const DEFAULT_REPETITIONS = 3;
-export const DEFAULT_CONCURRENCY = 15;
+export const DEFAULT_CONCURRENCY = 18;
 export const JUDGE_INPUT_LIMIT = 100_000;
 
 export const AGENT_IDS = [
   "claude",
   "codex",
   "deepseek",
+  "antigravity",
   "hermes",
   "openclaw",
   "cursor",

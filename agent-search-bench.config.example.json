@@ -1,7 +1,7 @@
 {
   "outputDir": "runs",
   "repetitions": 3,
-  "concurrency": 15,
+  "concurrency": 18,
   "timeoutMs": 600000,
   "agents": {
     "claude": {
@@ -24,6 +24,15 @@
       "credentialEnv": ["DEEPSEEK_API_KEY"],
       "searchProvider": "deepseek-search-api",
       "searchBackend": "DeepSeek Search API"
+    },
+    "antigravity": {
+      "enabled": true,
+      "command": "agy",
+      "model": "CHOOSE_ANTIGRAVITY_MODEL",
+      "provider": "gemini",
+      "credentialEnv": ["GEMINI_API_KEY"],
+      "searchProvider": "google",
+      "searchBackend": "Antigravity Google Search"
     },
     "hermes": {
       "enabled": true,

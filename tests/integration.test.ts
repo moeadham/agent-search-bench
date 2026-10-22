@@ -106,6 +106,7 @@ if (audit) {
         claude: { ...agent, discoveryPromptSuffix: "Research the live web before recommending one." },
         codex: { ...agent },
         deepseek: { ...agent, searchProvider: "deepseek-search-api" },
+        antigravity: { ...agent, provider: "gemini", searchProvider: "google" },
         hermes: { ...agent, provider: "fake", timeoutMs: 1_000 },
         openclaw: { ...agent },
         cursor: { ...agent },
@@ -115,10 +116,10 @@ if (audit) {
     };
     const run = await runBenchmark({ config, configRaw: JSON.stringify(config), query: "Find an audio model aggregator" });
     const report = JSON.parse(await readFile(join(run, "report.json"), "utf8")) as BenchmarkReport;
-    expect(report.scheduledTrials).toBe(12);
-    expect(report.successfulTrials).toBe(12);
+    expect(report.scheduledTrials).toBe(14);
+    expect(report.successfulTrials).toBe(14);
     const lifecycleLines = (await readFile(lifecycle, "utf8")).trim().split("\n");
-    expect(lifecycleLines.slice(0, 12)).toEqual(Array(12).fill("discovery-start"));
+    expect(lifecycleLines.slice(0, 14)).toEqual(Array(14).fill("discovery-start"));
     expect(report.entities[0]?.key).toBe("audiohub.example");
     expect(report.entities[0]?.mrr).toBe(1);
     expect(report.trials.some((trial) => trial.judge.attempts === 2)).toBe(true);

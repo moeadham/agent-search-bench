@@ -1,6 +1,6 @@
 # Agent Search Bench
 
-A TypeScript CLI for comparing agentic web discovery. It runs a base prompt through enabled agent harnesses, interviews each agent in the same session, preserves observable tool evidence, and reports the returned search-result lists and the agent's recommendation. The current deployment enables Claude Code, Codex, DeepSeek Harness, Hermes, and OpenClaw; Cursor remains implemented but disabled and is not installed in the image.
+A TypeScript CLI for comparing agentic web discovery. It runs a base prompt through enabled agent harnesses, interviews each agent in the same session, preserves observable tool evidence, and reports the returned search-result lists and the agent's recommendation. The current deployment enables Claude Code, Codex, DeepSeek Harness, Google Antigravity, Hermes, and OpenClaw; Cursor remains implemented but disabled and is not installed in the image.
 
 It has two modes:
 
@@ -44,6 +44,7 @@ Edit `agent-search-bench.config.json` and replace every `CHOOSE_*` value with an
 export ANTHROPIC_API_KEY="..."
 export CODEX_API_KEY="..."
 export DEEPSEEK_API_KEY="..."
+export GEMINI_API_KEY="..."
 export HERMES_PROVIDER_API_KEY="..."
 export OPENCLAW_PROVIDER_API_KEY="..."
 export FIRECRAWL_API_KEY="..."
@@ -56,7 +57,7 @@ export ANTHROPIC_API_KEY_FILE=/run/secrets/anthropic
 
 The placeholder Hermes/OpenClaw credential names are intentionally configurable. Change `credentialEnv` to the actual variable used by the selected provider, such as `OPENROUTER_API_KEY`. The report-analysis model extracts the primary recommendation and proposes the captured-evidence-only content opportunity; it must expose an OpenAI-compatible `/chat/completions` endpoint with JSON-schema structured output.
 
-Model and search providers are configured independently. The checked-in deployment pins DeepSeek Harness to DeepSeek's direct `deepseek-search-api` and `deepseek-fetch-api` providers using `DEEPSEEK_API_KEY`, Hermes search to its documented Firecrawl default (`FIRECRAWL_API_KEY`), and OpenClaw search to the first provider in its auto-detection order, Brave (`BRAVE_API_KEY`). OpenRouter remains the model provider for Hermes, OpenClaw, and the structured report-analysis step.
+Model and search providers are configured independently. The checked-in deployment pins DeepSeek Harness to DeepSeek's direct `deepseek-search-api` and `deepseek-fetch-api` providers using `DEEPSEEK_API_KEY`, Antigravity to Gemini with its native Google `search_web` tool using `GEMINI_API_KEY`, Hermes search to its documented Firecrawl default (`FIRECRAWL_API_KEY`), and OpenClaw search to the first provider in its auto-detection order, Brave (`BRAVE_API_KEY`). OpenRouter remains the model provider for Hermes, OpenClaw, and the structured report-analysis step.
 
 An agent may optionally define `discoveryPromptSuffix`. The suffix is appended only for that harness and the exact resulting prompt is retained in every trial and shown in the report. The checked-in deployment adds `Research the live web before recommending one.` for Claude because live testing showed that the unmodified discovery prompt did not reliably trigger Claude's search tool. Other harnesses receive the base query verbatim.
 
@@ -104,9 +105,9 @@ The discovery report keeps two questions separate:
 - Did the answer demonstrate specific recognition of the intended service? An independent, non-browsing classifier labels it recognized, ambiguous, misidentified, or not recognized. Merely repeating the prompted name is not recognition.
 - Did an observable native search-result list contain the exact service name? The report shows the matching rows and best rank. No search, incomplete result payloads, and a complete list with no match are reported separately.
 
-The contextual and name-only sessions never share history. With five enabled harnesses and three repetitions, discovery mode schedules 30 independent trials through the same configured concurrency pool.
+The contextual and name-only sessions never share history. With six enabled harnesses and three repetitions, discovery mode schedules 36 independent trials through the same configured concurrency pool.
 
-The default is three fresh repetitions per enabled agent with fifteen-way concurrency and a ten-minute global timeout per turn. An agent can set `timeoutMs` to override that ceiling; the checked-in deployment lets every harness, including Hermes, inherit the global timeout. Every agent/repetition pair is submitted to one concurrency pool with no repetition barriers, so the default five-agent, three-repetition run starts all fifteen independent trials together. Each successful discovery is followed by a fixed audit interview in the same session. Regenerate a report without making model calls:
+The default is three fresh repetitions per enabled agent with eighteen-way concurrency and a ten-minute global timeout per turn. An agent can set `timeoutMs` to override that ceiling; the checked-in deployment lets every harness, including Hermes, inherit the global timeout. Every agent/repetition pair is submitted to one concurrency pool with no repetition barriers, so the six-harness ranking matrix starts all 18 discovery sessions together. Each successful discovery is followed by a fixed audit interview in the same session. Regenerate a report without making model calls:
 
 ```bash
 node dist/cli.js report runs/<run-id>
@@ -242,7 +243,7 @@ pnpm build
 pnpm test:container
 ```
 
-Tests use fixture/fake process output and never make paid model calls. Container smoke tests build the image, check all five CLI versions, and run non-live configuration/credential inspection. Paid acceptance is explicitly gated:
+Tests use fixture/fake process output and never make paid model calls. Container smoke tests build the image, check every installed CLI version, and run non-live configuration/credential inspection. Paid acceptance is explicitly gated:
 
 ```bash
 ASBENCH_ENABLE_PAID_E2E=1 \
@@ -250,7 +251,7 @@ ASBENCH_CONFIG=agent-search-bench.config.json \
 pnpm test:live
 ```
 
-Set repetitions and enabled agents in that configuration to select the one-agent adapter check, five-agent reporting check, or final five-agent/three-repetition acceptance run.
+Set repetitions and enabled agents in that configuration to select a one-agent adapter check or the full enabled-harness acceptance run.
 
 ## Security notes
 

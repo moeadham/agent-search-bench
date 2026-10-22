@@ -67,6 +67,7 @@ export function createConfigTemplate(): BenchmarkConfig {
       claude: { enabled: true, command: "claude", model: "CHOOSE_CLAUDE_MODEL", credentialEnv: ["ANTHROPIC_API_KEY"] },
       codex: { enabled: true, command: "codex", model: "CHOOSE_CODEX_MODEL", credentialEnv: ["CODEX_API_KEY"] },
       deepseek: { enabled: true, command: "dsh", model: "CHOOSE_DEEPSEEK_MODEL", provider: "deepseek-official", credentialEnv: ["DEEPSEEK_API_KEY"], searchProvider: "deepseek-search-api", searchBackend: "DeepSeek Search API" },
+      antigravity: { enabled: true, command: "agy", model: "CHOOSE_ANTIGRAVITY_MODEL", provider: "gemini", credentialEnv: ["GEMINI_API_KEY"], searchProvider: "google", searchBackend: "Antigravity Google Search" },
       hermes: { enabled: true, command: "hermes", model: "CHOOSE_HERMES_MODEL", provider: "CHOOSE_HERMES_PROVIDER", credentialEnv: ["HERMES_PROVIDER_API_KEY", "FIRECRAWL_API_KEY"], searchProvider: "firecrawl", searchBackend: "Hermes Firecrawl" },
       openclaw: { enabled: true, command: "openclaw", model: "CHOOSE_OPENCLAW_MODEL", credentialEnv: ["OPENCLAW_PROVIDER_API_KEY", "BRAVE_API_KEY"], searchProvider: "brave", searchBackend: "OpenClaw Brave Search" },
       cursor: { enabled: false, command: "cursor-agent", model: "CHOOSE_CURSOR_MODEL", credentialEnv: ["CURSOR_API_KEY"] },

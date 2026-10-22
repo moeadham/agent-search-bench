@@ -7,6 +7,7 @@
     "claude": { "enabled": false, "command": "claude", "model": "disabled", "credentialEnv": ["ANTHROPIC_API_KEY"] },
     "codex": { "enabled": false, "command": "codex", "model": "disabled", "credentialEnv": ["CODEX_API_KEY"] },
     "deepseek": { "enabled": false, "command": "dsh", "model": "disabled", "credentialEnv": ["DEEPSEEK_API_KEY"] },
+    "antigravity": { "enabled": false, "command": "agy", "model": "disabled", "credentialEnv": ["GEMINI_API_KEY"] },
     "hermes": { "enabled": false, "command": "hermes", "model": "disabled", "credentialEnv": ["OPENROUTER_API_KEY"] },
     "openclaw": {
       "enabled": true,

@@ -120,6 +120,7 @@ function basisLabel(value: TrialEvidenceJourney["basis"]): string {
 function agentName(value: string): string {
   if (value === "openclaw") return "OpenClaw";
   if (value === "deepseek") return "DeepSeek";
+  if (value === "antigravity") return "Antigravity";
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 

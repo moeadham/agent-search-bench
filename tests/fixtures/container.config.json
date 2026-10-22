@@ -7,6 +7,7 @@
     "claude": { "enabled": true, "command": "claude", "model": "smoke-model", "credentialEnv": ["SMOKE_AGENT_KEY"] },
     "codex": { "enabled": true, "command": "codex", "model": "smoke-model", "credentialEnv": ["SMOKE_AGENT_KEY"] },
     "deepseek": { "enabled": true, "command": "dsh", "model": "smoke-model", "credentialEnv": ["SMOKE_AGENT_KEY"], "searchProvider": "deepseek-search-api" },
+    "antigravity": { "enabled": true, "command": "agy", "model": "gemini-3.8-flash-medium", "provider": "gemini", "credentialEnv": ["GEMINI_API_KEY"], "searchProvider": "google" },
     "hermes": { "enabled": true, "command": "hermes", "model": "smoke-model", "provider": "smoke-provider", "credentialEnv": ["SMOKE_AGENT_KEY"] },
     "openclaw": { "enabled": true, "command": "openclaw", "model": "smoke-provider/smoke-model", "credentialEnv": ["SMOKE_AGENT_KEY"] },
     "cursor": { "enabled": false, "command": "cursor-agent", "model": "disabled", "credentialEnv": ["SMOKE_AGENT_KEY"] }

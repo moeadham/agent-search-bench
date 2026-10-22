@@ -3,5 +3,6 @@ dist
 runs
 .git
 .env
+.agent-runtime
 agent-search-bench.config.json
 agent-rank.config.json

@@ -13,7 +13,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function isSearchTool(tool: ToolEvidence): boolean {
-  return /^(?:web_?search|search)$/i.test(tool.name);
+  return /^(?:web_?search|search_?web|search)$/i.test(tool.name);
 }
 
 export function observedSearches(tools: ToolEvidence[]): ToolEvidence[] {

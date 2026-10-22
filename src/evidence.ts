@@ -129,6 +129,14 @@ function resultRows(value: unknown, query?: string, tool?: string): SearchResult
   return [...new Map(rows.map((row) => [row.url, row])).values()];
 }
 
+function hasExplicitResultList(value: unknown): boolean {
+  if (typeof value === "string") {
+    try { return hasExplicitResultList(JSON.parse(value)); }
+    catch { return false; }
+  }
+  return records(value).some((record) => Array.isArray(record.results) || Array.isArray(record.sources));
+}
+
 function toolName(record: Record<string, unknown>): string | undefined {
   return firstString(record, ["toolName", "tool_name", "tool", "name"]);
 }
@@ -221,7 +229,7 @@ export function parseTurn(events: unknown[], stdout: string, phase: "discovery" 
   for (const event of events) {
     const all = records(event);
     for (const record of all) {
-      sessionId ??= firstString(record, ["session_id", "sessionId", "thread_id", "threadId", "chat_id", "chatId"]);
+      sessionId ??= firstString(record, ["session_id", "sessionId", "thread_id", "threadId", "chat_id", "chatId", "conversation_id", "conversationId"]);
       resolvedModel ??= firstString(record, ["model", "model_id", "modelId"]);
       resolvedProvider ??= firstString(record, ["provider", "apiProvider"]);
       const maybeCost = record.costUsd ?? record.cost_usd ?? record.total_cost_usd;
@@ -240,6 +248,45 @@ export function parseTurn(events: unknown[], stdout: string, phase: "discovery" 
         const text = textValue(record.result ?? record.final ?? record.text ?? record.content ?? record.message);
         if (text) textCandidates.push(text);
       }
+    }
+
+    // Antigravity's stream-json protocol exposes native tool parameters and
+    // outputs in step_update.tool_info. Keep the output verbatim, and only
+    // derive ordered rows when the payload contains observable URL records.
+    if (isRecord(event) && event.event === "step_update" && isRecord(event.step_update)) {
+      const step = event.step_update;
+      if (step.step_type === "agent_response" && typeof step.text_delta === "string" && step.text_delta.trim()) {
+        textCandidates.push(step.text_delta.trim());
+      }
+      if (step.step_type === "tool" && isRecord(step.tool_info)) {
+        const info = step.tool_info;
+        const name = firstString(step, ["tool_name"]) ?? firstString(info, ["name", "tool_name"]);
+        if (name) {
+          const input = info.parameters ?? info.input ?? info.arguments;
+          const output = info.output ?? info.result;
+          const id = firstString(info, ["id", "call_id", "tool_call_id"]);
+          const query = queryFrom(input);
+          const results = resultRows(output, query, name);
+          const responseText = typeof output === "string" && output.trim() ? output.trim() : undefined;
+          appendTool(tools, {
+            name,
+            phase,
+            ...(id ? { callId: id } : {}),
+            ...(query ? { query } : {}),
+            ...(input !== undefined ? { input } : {}),
+            ...(output !== undefined ? { output } : {}),
+            ...(responseText ? { responseText } : {}),
+            results,
+            rawObservable: results.length > 0 || hasExplicitResultList(output),
+          });
+        }
+        continue;
+      }
+    }
+
+    if (isRecord(event) && event.event === "result" && isRecord(event.result)) {
+      const response = firstString(event.result, ["response"]);
+      if (response) textCandidates.push(response);
     }
 
     // Claude stream-json keeps the exact ordered WebSearch rows and the
